@@ -55,6 +55,51 @@ document 1:
 {"tool":"ocr_recognize","args":{"doc":1,"language":"zh","pages":[1]}}
 ```
 
+## Ground truth and benchmark
+
+`crates/engine/tests/data/ocr/` holds ground-truth texts: `de.tsv` (an invoice, a letter and a
+delivery note written for PdfCraft, with amounts, dates, `§`, `°C` and dashes) and, for each
+named Latin language, three paragraphs from that language's Wikipedia (CC BY-SA 4.0, revision
+recorded per row). `cargo xtask ocr-texts <lang>` fetches new ones; it picks the paragraphs
+whose letters are most often outside ASCII and prints the `ATTRIBUTION.toml` entry. The tests
+never touch the network.
+
+`tests/it/support/ocr_scan.rs` sets each text on an A4 page in a committed face (Inter,
+JetBrains Mono) and scans it under four conditions: 300 dpi clean; 300 dpi with noise, blur and
+a 1° skew; 200 dpi with noise; 150 dpi at JPEG quality 65. Noise is seeded, so every run sees the
+same pixels. Words are scored as a multiset (reading order does not count), in three classes:
+all words, words with a letter outside ASCII, and tokens with a digit or symbol.
+
+`ocr_ground_truth::scanned_ground_truth_reads_back_above_its_floor` checks every fixture in
+Inter at 200 dpi against a recorded floor. The full matrix is
+
+```sh
+cargo run --release -p pdfcraft-engine --example ocr_bench -- --all --misses
+```
+
+Measured 2026-10-26 (both faces, all four conditions, 24 pages per row; `en` is the ocrs
+recogniser on `main`):
+
+| Fixture | `en` words | Language words | `en` accented | Language accented |
+|---|---|---|---|---|
+| de (invoice, letter, delivery note) | 65.7 % | 97.4 % | 0 % | 99.4 % |
+| de (Wikipedia) | 73.3 % | 100 % | 0 % | 100 % |
+| fr | 68.8 % | 99.9 % | 0 % | 100 % |
+| es | 73.2 % | 99.8 % | 0 % | 99.0 % |
+| pt | 69.0 % | 100 % | 0 % | 100 % |
+| it | 80.4 % | 99.5 % | 0 % | 99.3 % |
+| nl | 85.2 % | 99.4 % | 0 % | 91.2 % |
+| fi | 64.0 % | 97.8 % | 0 % | 98.5 % |
+| cs | 35.1 % | 87.6 % | 0 % | 78.4 % |
+| sv | 50.8 % | 87.6 % | 0 % | 72.0 % |
+| da | 74.1 % | 94.3 % | 0 % | 68.3 % |
+| is | 37.6 % | 79.4 % | 0 % | 61.9 % |
+| no | 73.2 % | 93.8 % | 0 % | 55.7 % |
+| pl | 46.2 % | 73.6 % | 0 % | 35.9 % |
+
+In the German documents the words still missed are almost all typography: the minus sign `−`
+and the en dash `–` come back as `-`, and `·` as `.`.
+
 ## Limits
 
 This is an initial searchable-image workflow, not an editable-text reconstruction.
