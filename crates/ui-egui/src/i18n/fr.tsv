@@ -2830,3 +2830,7 @@ certificate	Version	Version
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Les originaux ne sont pas modifiés. Un fichier du même nom déjà présent dans le dossier de sortie est conservé, et le nouveau reçoit un numéro.
 	; skipped: {n}	; ignorés : {n}
 	No PDF files were found.	Aucun fichier PDF trouvé.
+	less than a minute left	moins d'une minute restante
+	about {n} min left	environ {n} min restantes
+	about {h} h {m} min left	environ {h} h {m} min restantes
+	Text recognition cancelled. {summary}	Reconnaissance du texte annulée. {summary}

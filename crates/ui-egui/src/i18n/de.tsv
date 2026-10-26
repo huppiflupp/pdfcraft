@@ -2565,3 +2565,7 @@ animation effects	Off	Aus
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Die Originale bleiben unverändert. Eine gleichnamige Datei im Ausgabeordner bleibt erhalten, die neue bekommt eine Nummer.
 	; skipped: {n}	; übersprungen: {n}
 	No PDF files were found.	Keine PDF-Dateien gefunden.
+	less than a minute left	noch weniger als eine Minute
+	about {n} min left	noch etwa {n} Min.
+	about {h} h {m} min left	noch etwa {h} Std. {m} Min.
+	Text recognition cancelled. {summary}	Texterkennung abgebrochen. {summary}

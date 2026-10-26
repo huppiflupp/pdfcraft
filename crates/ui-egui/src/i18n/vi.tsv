@@ -2831,3 +2831,7 @@ key	Space	Space
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Các tệp gốc không bị thay đổi. Tệp cùng tên trong thư mục đầu ra được giữ lại, và tệp mới được đánh số.
 	; skipped: {n}	; bỏ qua: {n}
 	No PDF files were found.	Không tìm thấy tệp PDF nào.
+	less than a minute left	còn chưa đến một phút
+	about {n} min left	còn khoảng {n} phút
+	about {h} h {m} min left	còn khoảng {h} giờ {m} phút
+	Text recognition cancelled. {summary}	Đã hủy nhận dạng văn bản. {summary}

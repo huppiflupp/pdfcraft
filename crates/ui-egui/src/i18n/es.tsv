@@ -2887,3 +2887,7 @@ theme	Appearance	Aspecto
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Los originales no se modifican. Si la carpeta de salida ya tiene un archivo con el mismo nombre, se conserva y el nuevo recibe un número.
 	; skipped: {n}	; omitidos: {n}
 	No PDF files were found.	No se encontraron archivos PDF.
+	less than a minute left	queda menos de un minuto
+	about {n} min left	quedan unos {n} min
+	about {h} h {m} min left	quedan unas {h} h {m} min
+	Text recognition cancelled. {summary}	Se canceló el reconocimiento de texto. {summary}

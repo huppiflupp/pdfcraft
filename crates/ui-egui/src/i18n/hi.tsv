@@ -2801,3 +2801,7 @@ theme	Appearance	स्वरूप
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	मूल फ़ाइलें नहीं बदलतीं। आउटपुट फ़ोल्डर में उसी नाम की फ़ाइल बनी रहती है, और नई फ़ाइल को एक संख्या मिलती है।
 	; skipped: {n}	; छोड़ी गईं: {n}
 	No PDF files were found.	कोई PDF फ़ाइल नहीं मिली।
+	less than a minute left	एक मिनट से कम बचा है
+	about {n} min left	लगभग {n} मिनट बचे हैं
+	about {h} h {m} min left	लगभग {h} घं {m} मि बचे हैं
+	Text recognition cancelled. {summary}	टेक्स्ट पहचान रद्द की गई। {summary}

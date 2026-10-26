@@ -2825,3 +2825,7 @@ theme	Appearance	Aspect
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Originalele nu se modifică. Un fișier cu același nume din folderul de ieșire este păstrat, iar cel nou primește un număr.
 	; skipped: {n}	; omise: {n}
 	No PDF files were found.	Nu s-au găsit fișiere PDF.
+	less than a minute left	a mai rămas mai puțin de un minut
+	about {n} min left	au mai rămas circa {n} min
+	about {h} h {m} min left	au mai rămas circa {h} h {m} min
+	Text recognition cancelled. {summary}	Recunoașterea textului a fost anulată. {summary}

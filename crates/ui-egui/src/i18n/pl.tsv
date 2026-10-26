@@ -2660,3 +2660,7 @@ animation effects	Off	Wyłączone
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Oryginały nie są zmieniane. Plik o tej samej nazwie w folderze wyjściowym zostaje zachowany, a nowy otrzymuje numer.
 	; skipped: {n}	; pominięte: {n}
 	No PDF files were found.	Nie znaleziono plików PDF.
+	less than a minute left	zostało mniej niż minutę
+	about {n} min left	zostało ok. {n} min
+	about {h} h {m} min left	zostało ok. {h} godz. {m} min
+	Text recognition cancelled. {summary}	Anulowano rozpoznawanie tekstu. {summary}

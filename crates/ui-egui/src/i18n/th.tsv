@@ -2727,3 +2727,7 @@ theme	Appearance	ลักษณะที่ปรากฏ
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	ไฟล์ต้นฉบับจะไม่ถูกเปลี่ยนแปลง ไฟล์ชื่อเดียวกันในโฟลเดอร์ผลลัพธ์จะถูกเก็บไว้ และไฟล์ใหม่จะได้รับหมายเลข
 	; skipped: {n}	; ข้าม: {n}
 	No PDF files were found.	ไม่พบไฟล์ PDF
+	less than a minute left	เหลือไม่ถึงหนึ่งนาที
+	about {n} min left	เหลือประมาณ {n} นาที
+	about {h} h {m} min left	เหลือประมาณ {h} ชม. {m} นาที
+	Text recognition cancelled. {summary}	ยกเลิกการรู้จำข้อความแล้ว {summary}

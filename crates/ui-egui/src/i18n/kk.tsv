@@ -2562,3 +2562,7 @@ animation effects	Off	Өшірулі
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Түпнұсқалар өзгермейді. Шығыс қалтасындағы аттас файл сақталады, ал жаңасына нөмір беріледі.
 	; skipped: {n}	; өткізілді: {n}
 	No PDF files were found.	PDF файлдары табылмады.
+	less than a minute left	бір минуттан аз қалды
+	about {n} min left	шамамен {n} мин қалды
+	about {h} h {m} min left	шамамен {h} сағ {m} мин қалды
+	Text recognition cancelled. {summary}	Мәтінді тану тоқтатылды. {summary}

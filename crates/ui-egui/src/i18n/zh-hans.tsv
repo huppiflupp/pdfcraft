@@ -2528,3 +2528,7 @@ animation effects	Off	关
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	原文件不会被更改。输出文件夹中已有的同名文件会被保留，新文件会加上编号。
 	; skipped: {n}	；已跳过：{n}
 	No PDF files were found.	未找到 PDF 文件。
+	less than a minute left	剩余不到 1 分钟
+	about {n} min left	剩余约 {n} 分钟
+	about {h} h {m} min left	剩余约 {h} 小时 {m} 分钟
+	Text recognition cancelled. {summary}	已取消文字识别。{summary}

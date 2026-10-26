@@ -2564,3 +2564,7 @@ animation effects	Off	オフ
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	元のファイルは変更されません。出力フォルダーに同じ名前のファイルがある場合はそのまま残り、新しいファイルには番号が付きます。
 	; skipped: {n}	、スキップ: {n}
 	No PDF files were found.	PDF ファイルが見つかりませんでした。
+	less than a minute left	残り 1 分未満
+	about {n} min left	残り約 {n} 分
+	about {h} h {m} min left	残り約 {h} 時間 {m} 分
+	Text recognition cancelled. {summary}	テキスト認識をキャンセルしました。{summary}

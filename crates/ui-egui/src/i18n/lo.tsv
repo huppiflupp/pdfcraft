@@ -2472,3 +2472,7 @@ animation effects	Off	ປິດ
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	ໄຟລ໌ຕົ້ນສະບັບບໍ່ຖືກປ່ຽນແປງ. ໄຟລ໌ທີ່ມີຊື່ດຽວກັນໃນໂຟນເດີຜົນອອກຈະຖືກເກັບໄວ້ ແລະ ໄຟລ໌ໃໝ່ຈະໄດ້ຮັບໝາຍເລກ.
 	; skipped: {n}	; ຂ້າມ: {n}
 	No PDF files were found.	ບໍ່ພົບໄຟລ໌ PDF.
+	less than a minute left	ເຫຼືອບໍ່ເຖິງໜຶ່ງນາທີ
+	about {n} min left	ເຫຼືອປະມານ {n} ນາທີ
+	about {h} h {m} min left	ເຫຼືອປະມານ {h} ຊມ {m} ນາທີ
+	Text recognition cancelled. {summary}	ຍົກເລີກການຈຳແນກຂໍ້ຄວາມແລ້ວ. {summary}

@@ -2834,3 +2834,7 @@ theme	Appearance	Teema
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Alkuperäisiä ei muuteta. Samanniminen tiedosto tulostekansiossa säilyy, ja uusi saa numeron.
 	; skipped: {n}	; ohitettu: {n}
 	No PDF files were found.	PDF-tiedostoja ei löytynyt.
+	less than a minute left	alle minuutti jäljellä
+	about {n} min left	noin {n} min jäljellä
+	about {h} h {m} min left	noin {h} h {m} min jäljellä
+	Text recognition cancelled. {summary}	Tekstintunnistus peruttiin. {summary}

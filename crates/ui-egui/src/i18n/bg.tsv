@@ -2527,3 +2527,7 @@ animation effects	Off	Изключени
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Оригиналите не се променят. Файл със същото име в изходната папка се запазва, а новият получава номер.
 	; skipped: {n}	; пропуснати: {n}
 	No PDF files were found.	Не са намерени PDF файлове.
+	less than a minute left	остава по-малко от минута
+	about {n} min left	остават около {n} мин
+	about {h} h {m} min left	остават около {h} ч {m} мин
+	Text recognition cancelled. {summary}	Разпознаването на текст е отменено. {summary}

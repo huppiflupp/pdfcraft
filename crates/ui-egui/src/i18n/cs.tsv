@@ -2871,3 +2871,7 @@ certificate	Version	Verze
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Originály se nemění. Soubor se stejným názvem ve výstupní složce zůstane zachován a nový dostane číslo.
 	; skipped: {n}	; přeskočeno: {n}
 	No PDF files were found.	Nebyly nalezeny žádné soubory PDF.
+	less than a minute left	zbývá méně než minuta
+	about {n} min left	zbývá asi {n} min
+	about {h} h {m} min left	zbývá asi {h} h {m} min
+	Text recognition cancelled. {summary}	Rozpoznávání textu bylo zrušeno. {summary}

@@ -2563,3 +2563,7 @@ animation effects	Off	Ki
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Az eredeti fájlok nem változnak. A kimeneti mappában lévő azonos nevű fájl megmarad, az új pedig sorszámot kap.
 	; skipped: {n}	; kihagyva: {n}
 	No PDF files were found.	Nem található PDF-fájl.
+	less than a minute left	kevesebb mint egy perc van hátra
+	about {n} min left	kb. {n} perc van hátra
+	about {h} h {m} min left	kb. {h} óra {m} perc van hátra
+	Text recognition cancelled. {summary}	A szövegfelismerés megszakítva. {summary}

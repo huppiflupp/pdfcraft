@@ -2586,3 +2586,7 @@ animation effects	Off	Вимкнено
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Оригінали не змінюються. Файл із тією самою назвою в теці для результатів зберігається, а новий отримує номер.
 	; skipped: {n}	; пропущено: {n}
 	No PDF files were found.	PDF-файлів не знайдено.
+	less than a minute left	лишилося менше хвилини
+	about {n} min left	лишилося близько {n} хв
+	about {h} h {m} min left	лишилося близько {h} год {m} хв
+	Text recognition cancelled. {summary}	Розпізнавання тексту скасовано. {summary}

@@ -2825,3 +2825,7 @@ theme	Appearance	Išvaizda
 	The originals are not changed. A file of the same name in the output folder is kept, and the new one gets a number.	Originalai nekeičiami. Išvesties aplanke esantis tokio pat pavadinimo failas išsaugomas, o naujas gauna numerį.
 	; skipped: {n}	; praleista: {n}
 	No PDF files were found.	PDF failų nerasta.
+	less than a minute left	liko mažiau nei minutė
+	about {n} min left	liko apie {n} min.
+	about {h} h {m} min left	liko apie {h} val. {m} min.
+	Text recognition cancelled. {summary}	Teksto atpažinimas atšauktas. {summary}
