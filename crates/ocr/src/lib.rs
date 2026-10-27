@@ -12,6 +12,9 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+mod gpu;
+
 use rten_imageproc::{RectF, RotatedRect};
 
 pub use pdfcraft_fonts::helvetica_width;
@@ -149,10 +152,23 @@ fn clip(rect: [f32; 4], to: Option<RectF>) -> [f32; 4] {
 /// A loaded recogniser. Loading takes a moment; keep one and reuse it.
 pub struct Ocr {
     engine: ocrs::OcrEngine,
+    /// The GPU path, when enabled and its self-check passed.
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    gpu: Option<gpu::GpuOcr>,
+    /// Why the GPU is not used, when it was asked for.
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    gpu_refused: Option<String>,
 }
 
 impl Ocr {
+    /// Load the models; with the `gpu` feature, on the GPU too when `PDFCRAFT_OCR_GPU=1`.
     pub fn load(models: &Models) -> Result<Ocr, OcrError> {
+        Self::load_with_gpu(models, std::env::var("PDFCRAFT_OCR_GPU").is_ok_and(|v| v == "1"))
+    }
+
+    /// Load the models, asking for the GPU path when `gpu` (it is used only with the `gpu`
+    /// feature, ONNX models and a passing self-check; see [`Self::backend`]).
+    pub fn load_with_gpu(models: &Models, gpu: bool) -> Result<Ocr, OcrError> {
         let load = |p: &Path| rten::Model::load_file(p).map_err(|e| OcrError::Load(p.display().to_string(), e.to_string()));
         let params = ocrs::OcrEngineParams {
             detection_model: Some(load(&models.detection)?),
@@ -161,7 +177,47 @@ impl Ocr {
             ..Default::default()
         };
         let engine = ocrs::OcrEngine::new(params).map_err(|e| OcrError::Load("ocr engine".into(), e.to_string()))?;
-        Ok(Ocr { engine })
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        {
+            let (gpu, gpu_refused) = if gpu {
+                match gpu::GpuOcr::load(models, &engine) {
+                    Ok(g) => {
+                        log::info!("text recognition on the GPU: {}", g.adapter());
+                        (Some(g), None)
+                    }
+                    Err(e) => {
+                        log::warn!("text recognition stays on the CPU: {e}");
+                        (None, Some(e))
+                    }
+                }
+            } else {
+                (None, None)
+            };
+            Ok(Ocr { engine, gpu, gpu_refused })
+        }
+        #[cfg(not(all(feature = "gpu", not(target_arch = "wasm32"))))]
+        {
+            let _ = gpu;
+            Ok(Ocr { engine })
+        }
+    }
+
+    /// Where recognition runs: "CPU", or the GPU adapter; with the reason when a GPU that was
+    /// asked for is not used.
+    pub fn backend(&self) -> String {
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        {
+            if let Some(g) = &self.gpu {
+                return match g.status() {
+                    Ok(()) => format!("GPU: {}", g.adapter()),
+                    Err(e) => format!("CPU (the GPU failed: {e})"),
+                };
+            }
+            if let Some(e) = &self.gpu_refused {
+                return format!("CPU (GPU not used: {e})");
+            }
+        }
+        "CPU".into()
     }
 
     /// Load the models found by [`Models::find`].
@@ -181,6 +237,22 @@ impl Ocr {
             pixels.into()
         };
         let err = |e: &dyn std::fmt::Display| OcrError::Recognize(e.to_string());
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        if let Some(g) = &self.gpu
+            && g.status().is_ok()
+        {
+            let (w, h) = (width as usize, height as usize);
+            // The GPU reads RGB; a grey image is spread over the three channels.
+            let rgb3: std::borrow::Cow<[u8]> =
+                if rgb.len() == w * h { rgb.iter().flat_map(|&v| [v, v, v]).collect::<Vec<u8>>().into() } else { rgb.as_ref().into() };
+            match g.recognize(&self.engine, &rgb3, w, h) {
+                Ok(lines) => return Ok(lines),
+                Err(e) => {
+                    log::warn!("text recognition on the GPU failed, using the CPU from now on: {e}");
+                    g.fail(&e);
+                }
+            }
+        }
         let source = ocrs::ImageSource::from_bytes(&rgb, (width, height)).map_err(|e| err(&e))?;
         let input = self.engine.prepare_input(source).map_err(|e| err(&e))?;
         let found = self.engine.detect_words(&input).map_err(|e| err(&e))?;
