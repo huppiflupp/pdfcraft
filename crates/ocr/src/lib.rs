@@ -124,24 +124,16 @@ const LINE_PAD_ALONG: f32 = 0.1;
 /// its text from them.
 fn pad_line(line: &mut [RotatedRect]) -> Option<RectF> {
     let before = rten_imageproc::bounding_rect(line.iter())?;
-    // A box's height runs along its up axis: one whose up axis is horizontal has width and height
-    // swapped.
-    let upright = |r: &RotatedRect| {
-        let up = r.up_axis();
-        up.y.abs() >= up.x.abs()
-    };
-    let mut heights: Vec<f32> = line.iter().map(|r| if upright(r) { r.height() } else { r.width() }).filter(|h| h.is_finite() && *h > 0.0).collect();
+    // A box's height runs along its up axis and its width along the line, whichever way the
+    // line lies on the page.
+    let mut heights: Vec<f32> = line.iter().map(RotatedRect::height).filter(|h| h.is_finite() && *h > 0.0).collect();
     heights.sort_by(f32::total_cmp);
     let height = heights.get(heights.len() / 2).copied().unwrap_or(0.0);
     let last = line.len().saturating_sub(1);
     for (i, r) in line.iter_mut().enumerate() {
         let along = if i == 0 || i == last { 2.0 * LINE_PAD_ALONG * height } else { 0.0 };
         let across = 2.0 * LINE_PAD_ACROSS * height;
-        if upright(r) {
-            r.resize(r.width() + along, r.height() + across);
-        } else {
-            r.resize(r.width() + across, r.height() + along);
-        }
+        r.resize(r.width() + along, r.height() + across);
     }
     Some(before)
 }
@@ -312,10 +304,11 @@ mod tests {
         assert!(line.iter().all(|r| (r.height() - (40.0 + across)).abs() < 1e-3));
         assert!((line[0].width() - (80.0 + along)).abs() < 1e-3 && (line[2].width() - (50.0 + along)).abs() < 1e-3);
         assert!((line[1].width() - 100.0).abs() < 1e-3, "a word inside the line keeps its width");
-        // A box lying on its side (up axis horizontal) has width and height swapped.
+        // A box on its side (up axis horizontal) keeps its height across the line and its width
+        // along it.
         let mut side = vec![RotatedRect::new(PointF::from_yx(0.0, 0.0), Vec2::from_yx(0.0, 1.0), 40.0, 80.0)];
         pad_line(&mut side).unwrap();
-        assert!((side[0].width() - (40.0 + 2.0 * 0.15 * 40.0)).abs() < 1e-3 && (side[0].height() - (80.0 + 2.0 * 0.1 * 40.0)).abs() < 1e-3);
+        assert!((side[0].height() - (80.0 + 2.0 * 0.15 * 80.0)).abs() < 1e-3 && (side[0].width() - (40.0 + 2.0 * 0.1 * 80.0)).abs() < 1e-3);
         assert!(pad_line(&mut []).is_none());
     }
 
