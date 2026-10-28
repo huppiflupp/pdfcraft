@@ -725,7 +725,8 @@ mod tests {
         for file in ["text-detection.onnx", "text-recognition.onnx"] {
             std::fs::write(dir.path().join(file), b"model").unwrap();
         }
-        let expected = Some(Models { detection: dir.path().join("text-detection.onnx"), recognition: dir.path().join("text-recognition.onnx") });
+        let expected =
+            Some(Models { detection: dir.path().join("text-detection.onnx"), recognition: dir.path().join("text-recognition.onnx"), language: "en" });
         assert_eq!(Models::in_dir(dir.path()), expected, "a complete ONNX pair is sufficient");
         for file in ["text-detection.rten", "text-recognition.rten"] {
             std::fs::write(dir.path().join(file), b"model").unwrap();
@@ -743,7 +744,11 @@ mod tests {
             }
             assert_eq!(
                 Models::in_dir(dir.path()),
-                Some(Models { detection: dir.path().join("text-detection.rten"), recognition: dir.path().join("text-recognition.rten") }),
+                Some(Models {
+                    detection: dir.path().join("text-detection.rten"),
+                    recognition: dir.path().join("text-recognition.rten"),
+                    language: "en"
+                }),
                 "{current} alone must not hide a complete legacy pair"
             );
         }
@@ -771,7 +776,7 @@ mod tests {
         std::fs::write(dir.path().join("text-recognition.rten"), b"model").unwrap();
         assert_eq!(
             Models::in_dir(dir.path()),
-            Some(Models { detection: dir.path().join("text-detection.rten"), recognition: dir.path().join("text-recognition.rten") })
+            Some(Models { detection: dir.path().join("text-detection.rten"), recognition: dir.path().join("text-recognition.rten"), language: "en" })
         );
     }
 
