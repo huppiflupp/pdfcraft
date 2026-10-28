@@ -9335,3 +9335,28 @@ fn repeated_backdrop_artwork_survives_background_undo_redo_and_both_save_modes()
     s.apply(rewritten, Edit::RemoveMarks { kind: MarkKind::Background }).unwrap();
     black(&s, rewritten);
 }
+
+/// Saving moves `edit_generation` (autosave needs that) but not `content_generation`, which work
+/// begun on the document (a Recognize text run) checks its result against; edits, undo and
+/// reverting move both, and `content_generation` never comes back to an earlier value.
+#[test]
+fn saving_leaves_the_content_generation_alone() {
+    let mut s = Session::new();
+    let pdf = s.create_blank(595.0, 842.0, 2).unwrap();
+    let id = s.open("a.pdf", None, pdf, None).unwrap();
+    let edit = |s: &Session| s.get(id).unwrap().edit_generation();
+    let content = |s: &Session| s.get(id).unwrap().content_generation();
+    let (e0, c0) = (edit(&s), content(&s));
+    s.apply(id, Edit::RotatePages { pages: vec![0], degrees: 90 }).unwrap();
+    let (e1, c1) = (edit(&s), content(&s));
+    assert!(e1 > e0 && c1 > c0, "an edit moves both");
+    let bytes = s.save_bytes(id).unwrap();
+    s.mark_saved(id, bytes, None).unwrap();
+    assert!(edit(&s) > e1, "a save moves the edit generation");
+    assert_eq!(content(&s), c1, "a save leaves the content generation");
+    s.undo(id).unwrap();
+    let c2 = content(&s);
+    assert!(c2 > c1, "undo moves it, to a value it never had");
+    s.revert(id).unwrap();
+    assert!(content(&s) > c2, "reverting moves it");
+}

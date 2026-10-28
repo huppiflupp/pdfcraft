@@ -88,6 +88,7 @@ impl Session {
         }
         doc.dirty = false;
         doc.generation += 1;
+        doc.saves += 1;
         Self::refresh(doc).inspect_err(|_| Self::show_released(doc))
     }
 
