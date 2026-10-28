@@ -1302,6 +1302,12 @@
 	Output	Ausgabe
 	Searchable Image (Exact)	Durchsuchbares Bild (exakt)
 	Adds invisible text over each word; the page image is not changed	Legt unsichtbaren Text über jedes Wort; das Seitenbild bleibt unverändert
+	Searchable Image	Durchsuchbares Bild
+	Adds invisible text over each word and reduces scan images above the Downsample to resolution to it, for a smaller file	Legt unsichtbaren Text über jedes Wort und verringert Scanbilder oberhalb der Auflösung unter „Herunterrechnen auf“ auf diese, für eine kleinere Datei
+	; 1 image downsampled	; 1 Bild heruntergerechnet
+	; {n} images downsampled	; {n} Bilder heruntergerechnet
+	 ({n} left as they are)	 ({n} unverändert belassen)
+	Downsample images	Bilder herunterrechnen
 	Downsample to	Herunterrechnen auf
 	Also recognize pages that already have text	Auch Seiten erkennen, die bereits Text enthalten
 	Pictures on those pages are recognized too; words already in the page's text are not added again	Bilder auf diesen Seiten werden ebenfalls erkannt; Wörter, die schon im Text der Seite stehen, werden nicht erneut hinzugefügt
