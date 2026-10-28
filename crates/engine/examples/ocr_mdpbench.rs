@@ -172,6 +172,10 @@ fn recognise(image: Vec<u8>, language: &str) -> Result<String, String> {
     let id = s.open("page.pdf", None, pdf, None).map_err(|e| format!("{e:?}"))?;
     let settings = ocr::OcrSettings { dpi: dpi as f32, language: language.into(), ..Default::default() };
     let pages = s.recognize_text(id, &[], settings)?;
+    // A page the recogniser gave up on is an error here, not an empty page.
+    if let Some(why) = pages.iter().find_map(|p| p.skipped.as_deref()) {
+        return Err(format!("page skipped: {why}"));
+    }
     Ok(pages.iter().map(|p| p.text()).collect::<Vec<_>>().join("\n"))
 }
 

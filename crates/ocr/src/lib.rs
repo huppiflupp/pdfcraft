@@ -180,7 +180,7 @@ impl Models {
 }
 
 /// A recognised text segment and its box in image pixels `[left, top, right, bottom]`.
-/// English segments are words; Chinese and Latin segments are whole lines.
+/// English segments are words; Chinese and Latin segments are lines, or pieces of a long line.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Word {
     pub text: String,
@@ -197,6 +197,34 @@ impl Line {
     pub fn text(&self) -> String {
         self.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")
     }
+}
+
+/// The longest piece of a line the PP-OCR recognisers read at once, as width over height. A line
+/// across a newspaper's columns can be a hundred heights long; read whole it is squeezed past
+/// legibility (or, before, refused, and the page with it). Longer lines are read in pieces split
+/// at the gaps between their words.
+const PIECE_ASPECT: f32 = 40.0;
+
+/// `words` (boxes `[left, top, right, bottom]`, left to right along one line) gathered into
+/// pieces of at most [`PIECE_ASPECT`]: each piece is the box around the words it takes. A word
+/// longer than that on its own is a piece of its own. Non-finite boxes are left out.
+fn line_pieces(words: &[[f32; 4]]) -> Vec<[f32; 4]> {
+    let union = |a: [f32; 4], b: [f32; 4]| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])];
+    let aspect = |r: [f32; 4]| (r[2] - r[0]) / (r[3] - r[1]).max(1.0);
+    let mut pieces: Vec<[f32; 4]> = Vec::new();
+    let mut current: Option<[f32; 4]> = None;
+    for &w in words.iter().filter(|w| w.iter().all(|v| v.is_finite())) {
+        current = Some(match current {
+            Some(c) if aspect(union(c, w)) > PIECE_ASPECT => {
+                pieces.push(c);
+                w
+            }
+            Some(c) => union(c, w),
+            None => w,
+        });
+    }
+    pieces.extend(current);
+    pieces
 }
 
 /// A loaded recogniser. Loading takes a moment; keep one and reuse it.
@@ -271,15 +299,16 @@ impl Ocr {
             }
             let mut result = Vec::new();
             for line in lines {
-                let rect = line
-                    .iter()
-                    .map(|r| r.bounding_rect())
-                    .fold(None, |rect: Option<rten_imageproc::Rect<f32>>, r| Some(rect.map_or(r, |b| b.union(r))));
-                let Some(r) = rect else { continue };
-                let rect = [r.left(), r.top(), r.right(), r.bottom()];
-                let text = ppocr.recognize(&rgb, width, height, rect, self.preferred)?;
-                if !text.is_empty() {
-                    result.push(Line { words: vec![Word { text, rect }] });
+                let words: Vec<[f32; 4]> = line.iter().map(|r| r.bounding_rect()).map(|r| [r.left(), r.top(), r.right(), r.bottom()]).collect();
+                let mut read = Vec::new();
+                for rect in line_pieces(&words) {
+                    let text = ppocr.recognize(&rgb, width, height, rect, self.preferred)?;
+                    if !text.is_empty() {
+                        read.push(Word { text, rect });
+                    }
+                }
+                if !read.is_empty() {
+                    result.push(Line { words: read });
                 }
             }
             return Ok(result);
@@ -501,6 +530,29 @@ mod tests {
         // The euro sign follows the ASCII punctuation (class 44; 0 is the CTC blank), not a second E.
         assert_eq!(chars.iter().position(|&c| c == '€'), Some(43));
         assert_eq!(chars.iter().filter(|&&c| c == 'E').count(), 1);
+    }
+
+    /// A line across a newspaper's columns is read in pieces split at word gaps, each at most
+    /// PIECE_ASPECT long, instead of failing the page.
+    #[test]
+    fn a_long_line_is_read_in_pieces_at_word_gaps() {
+        // 30 words, 100 wide with 10 between them, 20 high: 3,290 wide, 164 heights.
+        let words: Vec<[f32; 4]> = (0..30).map(|i| [i as f32 * 110.0, 10.0, i as f32 * 110.0 + 100.0, 30.0]).collect();
+        let pieces = line_pieces(&words);
+        assert!(pieces.len() >= 5, "{pieces:?}");
+        for p in &pieces {
+            assert!((p[2] - p[0]) / (p[3] - p[1]) <= PIECE_ASPECT, "{p:?}");
+        }
+        // Together they cover every word, and no word is cut.
+        assert_eq!(pieces.first().map(|p| p[0]), Some(0.0));
+        assert_eq!(pieces.last().map(|p| p[2]), Some(29.0 * 110.0 + 100.0));
+        for w in &words {
+            assert!(pieces.iter().any(|p| p[0] <= w[0] && w[2] <= p[2]), "{w:?} is cut");
+        }
+        // A short line stays whole; a word longer than a piece on its own is its own piece.
+        assert_eq!(line_pieces(&words[..3]).len(), 1);
+        assert_eq!(line_pieces(&[[0.0, 0.0, 5000.0, 20.0], [5010.0, 0.0, 5100.0, 20.0]]).len(), 2);
+        assert!(line_pieces(&[[f32::NAN, 0.0, 1.0, 1.0]]).is_empty());
     }
 
     /// #524 and #3264: German is a named language on the accented Latin model, and it prefers
