@@ -10,10 +10,16 @@
 //!
 //! `--langs` picks MDPBench's languages (file prefixes), `--ocr` the recognition languages to
 //! compare (default: `en` and the page's own language, when PdfCraft has it), `--kind digital`,
-//! `photo` (taken from above) or `photo-turned` (sideways or upside down) one part, `--limit N` the first N pages per language and kind, `--misses` the
-//! words that did not come back. Table cells (from the annotated HTML) are scored on their own,
-//! so misread figures in tables show; formulas, figures and regions the annotators set aside are
-//! not scored, as recognising words cannot be compared with their LaTeX.
+//! `photo` (taken from above) or `photo-turned` (sideways or upside down) one part, `--limit N`
+//! the first N pages per language and kind, `--misses` the words that did not come back.
+//! `--out DIR` writes each page's text to `DIR/<OCR language>/<image>.md`, the predictions
+//! MDPBench's own evaluation reads (`pdf_validation.py`, then `tools/calculate_scores.py`); its
+//! scores are the ones published.
+//!
+//! The scores printed here are a quick check of our own: words found, in three classes, against
+//! the text of the annotated regions. Table cells (from the annotated HTML) are scored on their
+//! own, so misread figures in tables show; formulas, figures and regions the annotators set aside
+//! are not scored, as recognised words cannot be compared with LaTeX.
 
 #[path = "../tests/it/support/ocr_scan.rs"]
 mod ocr_scan;
@@ -51,10 +57,12 @@ struct Args {
     kind: Option<&'static str>,
     limit: usize,
     misses: bool,
+    /// Where to write each page's text as Markdown for MDPBench's own evaluation.
+    out: Option<PathBuf>,
 }
 
 fn parse() -> Result<Args, String> {
-    let mut a = Args { dir: PathBuf::new(), langs: vec![], ocr: vec![], kind: None, limit: usize::MAX, misses: false };
+    let mut a = Args { dir: PathBuf::new(), langs: vec![], ocr: vec![], kind: None, limit: usize::MAX, misses: false, out: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         let mut value = || it.next().ok_or(format!("{arg} needs a value"));
@@ -71,6 +79,7 @@ fn parse() -> Result<Args, String> {
             }
             "--limit" => a.limit = value()?.parse().map_err(|_| "--limit needs a number".to_string())?,
             "--misses" => a.misses = true,
+            "--out" => a.out = Some(PathBuf::from(value()?)),
             "-h" | "--help" => return Err(String::new()),
             s if s.starts_with('-') => return Err(format!("unknown option {s}")),
             s => a.dir = PathBuf::from(s),
@@ -166,6 +175,18 @@ fn recognise(image: Vec<u8>, language: &str) -> Result<String, String> {
     Ok(pages.iter().map(|p| p.text()).collect::<Vec<_>>().join("\n"))
 }
 
+/// The text of a page as MDPBench expects a prediction: `OUT/<OCR language>/<image stem>.md`,
+/// one paragraph per recognised line (its matching joins lines that make up one block).
+fn write_markdown(out: &Path, language: &str, file: &str, text: &str) {
+    let dir = out.join(language);
+    let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
+    let body: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let written = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(dir.join(format!("{stem}.md")), body.join("\n\n") + "\n"));
+    if let Err(e) = written {
+        eprintln!("{}: {e}", dir.display());
+    }
+}
+
 #[derive(Default)]
 struct Cell {
     score: Score,
@@ -179,7 +200,9 @@ fn main() {
     let args = match parse() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}\n\nusage: ocr_mdpbench DIR [--langs de,fr] [--ocr en,de] [--kind digital|photo|photo-turned] [--limit N] [--misses]");
+            eprintln!(
+                "{e}\n\nusage: ocr_mdpbench DIR [--langs de,fr] [--ocr en,de] [--kind digital|photo|photo-turned] [--limit N] [--misses] [--out DIR]"
+            );
             std::process::exit(2);
         }
     };
@@ -225,6 +248,9 @@ fn main() {
             cell.pages += 1;
             match result {
                 Ok(text) => {
+                    if let Some(out) = &args.out {
+                        write_markdown(out, language, &page.file, &text);
+                    }
                     cell.score.add(ocr_scan::score(&page.truth, &text));
                     cell.tables.add(ocr_scan::score(&page.tables, &text));
                     let mut have: BTreeMap<String, usize> = BTreeMap::new();
