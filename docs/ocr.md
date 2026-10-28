@@ -100,6 +100,32 @@ recogniser on `main`):
 In the German documents the words still missed are almost all typography: the minus sign `−`
 and the en dash `–` come back as `-`, and `·` as `.`.
 
+### Real pages: MDPBench
+
+The fixtures above are synthetic. For real pages there is
+[MDPBench](https://huggingface.co/datasets/Delores-Lin/MDPBench)'s public split (Apache-2.0). It
+has 160 pages per language, among them German, English, Spanish, French, Italian, Dutch and
+Portuguese: academic papers, newspapers, books, magazines, financial reports and letters. For
+each digital original there are three phone photos with folds, shadows, glare and blur.
+MDPBench is not committed and no test reads it.
+
+```sh
+cargo xtask mdpbench --langs de,fr,es        # once; pinned revision, into target/mdpbench/
+cargo run --release -p pdfcraft-engine --example ocr_mdpbench -- target/mdpbench --langs de,fr,es --ocr en,la --misses
+```
+
+Pages are scored in the same three word classes against the text of their annotated regions.
+Table cells, taken from the annotated HTML, are scored in a column of their own, so misread
+figures in tables show. Formulas are not scored, because recognised words cannot be compared
+with LaTeX. The results are split into three groups:
+
+- `digital`: the originals.
+- `photo`: photos taken from above.
+- `photo-turned`: photos taken from the left, the right or below. Their text lies sideways or
+  upside down, and recognition cannot read it without turning the page first.
+
+The resolution is not recorded, so each page is read as if it were A4 wide.
+
 ## Limits
 
 This is an initial searchable-image workflow, not an editable-text reconstruction.
