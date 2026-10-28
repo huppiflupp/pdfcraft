@@ -173,10 +173,9 @@ impl Onnx {
 mod tests {
     use super::*;
 
-    /// Garbage is an error, not a panic.
-    /// Garbage is an error, not a panic. (Not tested: 64 bytes of 0xff make rten-onnx 0.26's
-    /// parser loop without end; the shipped models are SHA-256 checked, and rten's own loader on
-    /// the CPU path parses the same way.)
+    /// Garbage is an error, not a panic. (Not tested: 11 or more bytes of 0xff make rten-onnx
+    /// 0.26's parser loop without end, robertknight/rten#1537; the shipped models are SHA-256
+    /// checked, and rten's own loader on the CPU path parses the same way.)
     #[test]
     fn a_broken_model_is_an_error() {
         for bytes in [&b""[..], b"\x00\x01\x02", b"not a model at all"] {
