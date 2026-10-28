@@ -9,7 +9,7 @@ use rten_tensor::{NdTensor, Tensor, prelude::*};
 
 use crate::OcrError;
 
-const HEIGHT: usize = 48;
+pub(crate) const HEIGHT: usize = 48;
 const MAX_WIDTH: usize = 4096;
 
 pub(crate) struct PpOcr {
@@ -58,8 +58,43 @@ impl PpOcr {
         decode(&values, &self.alphabet, preferred)
     }
 
+    /// The characters of the model's classes: the CTC blank (`'\0'`), the dictionary, a space.
+    pub(crate) fn alphabet(&self) -> &[char] {
+        &self.alphabet
+    }
+
+    /// The model run on one prepared crop (`data`, [3, HEIGHT, `width`]): one score per class
+    /// for every time step.
+    pub(crate) fn run(&self, data: Vec<f32>, width: usize) -> Result<Vec<f32>, OcrError> {
+        let input = NdTensor::from_data([1, 3, HEIGHT, width], data);
+        let output: Tensor<f32> = self
+            .model
+            .run_one(input.into(), None)
+            .map_err(|e| OcrError::Recognize(e.to_string()))?
+            .try_into()
+            .map_err(|e| OcrError::Recognize(format!("unexpected recognition output: {e}")))?;
+        let shape = output.shape();
+        if shape.len() != 3 || shape.first() != Some(&1) || shape.get(2) != Some(&self.alphabet.len()) {
+            return Err(OcrError::Recognize("PP-OCR output has an unexpected shape".into()));
+        }
+        Ok(output.iter().copied().collect())
+    }
+
     /// One score per class for every time step. An empty crop is an empty vector.
     fn scores(&self, rgb: &[u8], width: u32, height: u32, rect: [f32; 4]) -> Result<Vec<f32>, OcrError> {
+        match prepare(rgb, width, height, rect)? {
+            Some((data, _, tensor_width)) => self.run(data, tensor_width),
+            None => Ok(Vec::new()),
+        }
+    }
+}
+
+/// The recogniser's input for the `rect` crop of an RGB page: [3, HEIGHT, tensor width] values
+/// in [-1, 1], the crop scaled to the height and its own width, then padded with zeros to at
+/// least 320. Returns the values, the crop's scaled width and the tensor width; `None` for an
+/// empty crop.
+pub(crate) fn prepare(rgb: &[u8], width: u32, height: u32, rect: [f32; 4]) -> Result<Option<(Vec<f32>, usize, usize)>, OcrError> {
+    {
         let [left, top, right, bottom] = rect;
         if !rect.iter().all(|x| x.is_finite()) {
             return Err(OcrError::Recognize("non-finite text box".into()));
@@ -70,7 +105,7 @@ impl PpOcr {
         let bottom = (bottom.ceil() + 2.0).clamp(0.0, height as f32) as usize;
         let (cw, ch) = (right.saturating_sub(left), bottom.saturating_sub(top));
         if cw == 0 || ch == 0 {
-            return Ok(Vec::new());
+            return Ok(None);
         }
         let resized = input_width(cw, ch);
         let tensor_width = resized.max(320);
@@ -93,18 +128,7 @@ impl PpOcr {
                 }
             }
         }
-        let input = NdTensor::from_data([1, 3, HEIGHT, tensor_width], data);
-        let output: Tensor<f32> = self
-            .model
-            .run_one(input.into(), None)
-            .map_err(|e| OcrError::Recognize(e.to_string()))?
-            .try_into()
-            .map_err(|e| OcrError::Recognize(format!("unexpected recognition output: {e}")))?;
-        let shape = output.shape();
-        if shape.len() != 3 || shape.first() != Some(&1) || shape.get(2) != Some(&self.alphabet.len()) {
-            return Err(OcrError::Recognize("PP-OCR output has an unexpected shape".into()));
-        }
-        Ok(output.iter().copied().collect())
+        Ok(Some((data, resized, tensor_width)))
     }
 }
 
@@ -141,6 +165,38 @@ fn decode(values: &[f32], alphabet: &[char], preferred: &str) -> Result<String, 
         previous = best;
     }
     Ok(text.trim().to_string())
+}
+
+/// [`decode`] for steps given as their best classes with probabilities (best first), as the GPU
+/// returns them: the same CTC collapse, the same preference, as long as every class within
+/// [`PREFERENCE_MARGIN`] of the winner is among those listed.
+pub(crate) fn decode_ranked(steps: &[Vec<(u32, f32)>], alphabet: &[char], preferred: &str) -> String {
+    let mut text = String::new();
+    let mut previous = 0;
+    for ranked in steps {
+        let Some(&(best, best_v)) = ranked.first() else { continue };
+        let mut best = best as usize;
+        if !preferred.is_empty() {
+            let liked = |i: usize| alphabet.get(i).is_some_and(|c| c.is_ascii_alphabetic() || preferred.contains(*c));
+            if !liked(best) && alphabet.get(best).is_some_and(|c| c.is_alphabetic()) {
+                let mut chosen_v = f32::NEG_INFINITY;
+                for &(i, v) in ranked {
+                    if liked(i as usize) && best_v - v <= PREFERENCE_MARGIN && v > chosen_v {
+                        best = i as usize;
+                        chosen_v = v;
+                    }
+                }
+            }
+        }
+        if best != 0
+            && best != previous
+            && let Some(c) = alphabet.get(best)
+        {
+            text.push(*c);
+        }
+        previous = best;
+    }
+    text.trim().to_string()
 }
 
 /// If a letter this language writes scores within [`PREFERENCE_MARGIN`] of the winner, use the

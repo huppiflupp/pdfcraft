@@ -15,14 +15,22 @@
 use rten_imageproc::BoundingRect;
 use std::path::{Path, PathBuf};
 
+#[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+mod gpu;
 mod layout;
+#[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+mod pp_gpu;
 mod ppocr;
+
+use rten_imageproc::{RectF, RotatedRect};
 
 pub use pdfcraft_fonts::helvetica_width;
 
 /// The model files, as named in ATTRIBUTION.toml.
-pub const DETECTION_MODEL: &str = "text-detection.rten";
-pub const RECOGNITION_MODEL: &str = "text-recognition.rten";
+pub const DETECTION_MODEL: &str = "text-detection.onnx";
+pub const RECOGNITION_MODEL: &str = "text-recognition.onnx";
+/// The legacy RTEN pair, used when no complete ONNX pair is there.
+const LEGACY_MODELS: (&str, &str) = ("text-detection.rten", "text-recognition.rten");
 pub const CHINESE_MODEL: &str = "chinese-recognition.onnx";
 pub const CHINESE_DICTIONARY: &str = "chinese-keys.txt";
 pub const LATIN_MODEL: &str = "latin-recognition.onnx";
@@ -31,7 +39,7 @@ pub const LATIN_DICTIONARY: &str = "latin-keys.txt";
 /// The PP-OCR languages: (code, model file, dictionary file, output classes = CTC blank +
 /// one per dictionary line + the appended space). The class count is pinned per model, so a
 /// wrong or truncated dictionary fails at load instead of decoding garbage.
-const PP_OCR: &[(&str, &str, &str, usize)] = &[
+pub(crate) const PP_OCR: &[(&str, &str, &str, usize)] = &[
     ("zh", CHINESE_MODEL, CHINESE_DICTIONARY, 6625),
     ("la", LATIN_MODEL, LATIN_DICTIONARY, 504),
     ("fr", LATIN_MODEL, LATIN_DICTIONARY, 504),
@@ -128,24 +136,30 @@ pub struct Models {
 }
 
 impl Models {
-    /// The models in `dir`, if both files are there.
+    /// A complete model pair in `dir`, preferring current ONNX files over legacy RTEN files.
+    /// An incomplete update never mixes formats or hides an intact legacy pair.
     pub fn in_dir(dir: &Path) -> Option<Models> {
         Self::in_dir_for(dir, "en")
     }
 
+    /// The models for `language` in `dir`: the detector (ONNX preferred over the legacy RTEN file,
+    /// never mixed with the other format's recogniser for English) and the language's recogniser,
+    /// with its dictionary for the PP-OCR languages.
     pub fn in_dir_for(dir: &Path, language: &str) -> Option<Models> {
         let language = LANGUAGES.iter().find(|l| l.0 == language)?.0;
-        let recognition = if language == "en" {
-            RECOGNITION_MODEL
-        } else {
-            let &(_, model, dictionary, _) = PP_OCR.iter().find(|(code, ..)| *code == language)?;
-            if !dir.join(dictionary).is_file() {
-                return None;
-            }
-            model
-        };
-        let m = Models { detection: dir.join(DETECTION_MODEL), recognition: dir.join(recognition), language };
-        (m.detection.is_file() && m.recognition.is_file()).then_some(m)
+        [(DETECTION_MODEL, RECOGNITION_MODEL), LEGACY_MODELS].into_iter().find_map(|(detection, english)| {
+            let recognition = if language == "en" {
+                english
+            } else {
+                let &(_, model, dictionary, _) = PP_OCR.iter().find(|(code, ..)| *code == language)?;
+                if !dir.join(dictionary).is_file() {
+                    return None;
+                }
+                model
+            };
+            let m = Models { detection: dir.join(detection), recognition: dir.join(recognition), language };
+            (m.detection.is_file() && m.recognition.is_file()).then_some(m)
+        })
     }
 
     /// Look for the models: `$PDFCRAFT_MODELS`, then where the release packages install them
@@ -232,6 +246,44 @@ fn line_pieces(words: &[[f32; 4]]) -> Vec<[f32; 4]> {
     pieces
 }
 
+/// How far each found line is widened before its image is cut out for recognition, as fractions
+/// of the line's median word height: above and below every word, and before its first and after
+/// its last word. ocrs grows each word box by a fixed 3 pixels, under one pixel of its detection
+/// model's 800 x 600 input once a page is rendered at 300 dpi: the line images clipped the first
+/// and last letters ("The" read as "he", "and" as "an", closing full stops lost), and the more so
+/// the higher the resolution. Chosen on synthetic pages at 150 to 400 dpi, where the word error
+/// rate fell from 3.8 % to 0.3 %; neighbouring values do about as well.
+const LINE_PAD_ACROSS: f32 = 0.15;
+const LINE_PAD_ALONG: f32 = 0.1;
+
+/// Widen `line` (its word boxes, in reading order) as [`LINE_PAD_ACROSS`] and
+/// [`LINE_PAD_ALONG`] say, after the lines were found, so finding them is unchanged. Returns the
+/// box the words covered before, which the recognised words are clipped to: the text layer sizes
+/// its text from them.
+fn pad_line(line: &mut [RotatedRect]) -> Option<RectF> {
+    let before = rten_imageproc::bounding_rect(line.iter())?;
+    // A box's height runs along its up axis and its width along the line, whichever way the
+    // line lies on the page.
+    let mut heights: Vec<f32> = line.iter().map(RotatedRect::height).filter(|h| h.is_finite() && *h > 0.0).collect();
+    heights.sort_by(f32::total_cmp);
+    let height = heights.get(heights.len() / 2).copied().unwrap_or(0.0);
+    let last = line.len().saturating_sub(1);
+    for (i, r) in line.iter_mut().enumerate() {
+        let along = if i == 0 || i == last { 2.0 * LINE_PAD_ALONG * height } else { 0.0 };
+        let across = 2.0 * LINE_PAD_ACROSS * height;
+        r.resize(r.width() + along, r.height() + across);
+    }
+    Some(before)
+}
+
+/// `rect` ([left, top, right, bottom]) clipped to `to`; unchanged if that leaves nothing.
+fn clip(rect: [f32; 4], to: Option<RectF>) -> [f32; 4] {
+    let Some(to) = to else { return rect };
+    let [l, t, r, b] = rect;
+    let clipped = [l.max(to.left()), t.max(to.top()), r.min(to.right()), b.min(to.bottom())];
+    if clipped[0] < clipped[2] && clipped[1] < clipped[3] { clipped } else { rect }
+}
+
 /// A loaded recogniser. Loading takes a moment; keep one and reuse it.
 pub struct Ocr {
     engine: ocrs::OcrEngine,
@@ -239,10 +291,26 @@ pub struct Ocr {
     /// Letters this document language prefers when two readings are close. Empty for English,
     /// Chinese and the unrestricted Latin choice.
     preferred: &'static str,
+    /// The GPU path, when enabled and its self-check passed.
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    gpu: Option<gpu::GpuOcr>,
+    /// Why the GPU is not used, when it was asked for.
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    gpu_refused: Option<String>,
+    /// The PP-OCR recogniser on the GPU, when enabled and its self-check passed.
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    pp_gpu: Option<pp_gpu::PpGpu>,
 }
 
 impl Ocr {
+    /// Load the models; with the `gpu` feature, on the GPU too when `PDFCRAFT_OCR_GPU=1`.
     pub fn load(models: &Models) -> Result<Ocr, OcrError> {
+        Self::load_with_gpu(models, std::env::var("PDFCRAFT_OCR_GPU").is_ok_and(|v| v == "1"))
+    }
+
+    /// Load the models, asking for the GPU path when `gpu` (it is used only with the `gpu`
+    /// feature, ONNX models and a passing self-check; see [`Self::backend`]).
+    pub fn load_with_gpu(models: &Models, gpu: bool) -> Result<Ocr, OcrError> {
         let load = |p: &Path| rten::Model::load_file(p).map_err(|e| OcrError::Load(p.display().to_string(), e.to_string()));
         let name = models.recognition.file_name().and_then(|f| f.to_str()).unwrap_or_default();
         let ppocr = PP_OCR
@@ -257,7 +325,57 @@ impl Ocr {
             ..Default::default()
         };
         let engine = ocrs::OcrEngine::new(params).map_err(|e| OcrError::Load("ocr engine".into(), e.to_string()))?;
-        Ok(Ocr { engine, ppocr, preferred: preferred_letters(models.language) })
+        let preferred = preferred_letters(models.language);
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        {
+            let (mut gpu_ocr, mut pp_gpu, mut gpu_refused) = (None, None, None);
+            if gpu {
+                let loaded = match &ppocr {
+                    Some(pp) => pp_gpu::PpGpu::load(models, &engine, pp).map(|g| {
+                        log::info!("PP-OCR recognition on the GPU: {}", g.adapter());
+                        pp_gpu = Some(g);
+                    }),
+                    None => gpu::GpuOcr::load(models, &engine).map(|g| {
+                        log::info!("text recognition on the GPU: {}", g.adapter());
+                        gpu_ocr = Some(g);
+                    }),
+                };
+                if let Err(e) = loaded {
+                    log::warn!("text recognition stays on the CPU: {e}");
+                    gpu_refused = Some(e);
+                }
+            }
+            Ok(Ocr { engine, ppocr, preferred, gpu: gpu_ocr, gpu_refused, pp_gpu })
+        }
+        #[cfg(not(all(feature = "gpu", not(target_arch = "wasm32"))))]
+        {
+            let _ = gpu;
+            Ok(Ocr { engine, ppocr, preferred })
+        }
+    }
+
+    /// Where recognition runs: "CPU", or the GPU adapter; with the reason when a GPU that was
+    /// asked for is not used.
+    pub fn backend(&self) -> String {
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        {
+            if let Some(g) = &self.gpu {
+                return match g.status() {
+                    Ok(()) => format!("GPU: {}", g.adapter()),
+                    Err(e) => format!("CPU (the GPU failed: {e})"),
+                };
+            }
+            if let Some(g) = &self.pp_gpu {
+                return match g.status() {
+                    Ok(()) => format!("GPU: {}", g.adapter()),
+                    Err(e) => format!("CPU (the GPU failed: {e})"),
+                };
+            }
+            if let Some(e) = &self.gpu_refused {
+                return format!("CPU (GPU not used: {e})");
+            }
+        }
+        "CPU".into()
     }
 
     /// Load the models found by [`Models::find`].
@@ -294,41 +412,71 @@ impl Ocr {
             pixels.into()
         };
         let err = |e: &dyn std::fmt::Display| OcrError::Recognize(e.to_string());
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        if let Some(g) = &self.gpu
+            && g.status().is_ok()
+        {
+            let (w, h) = (width as usize, height as usize);
+            // The GPU reads RGB; a grey image is spread over the three channels.
+            let rgb3: std::borrow::Cow<[u8]> =
+                if rgb.len() == w * h { rgb.iter().flat_map(|&v| [v, v, v]).collect::<Vec<u8>>().into() } else { rgb.as_ref().into() };
+            match g.recognize(&self.engine, &rgb3, w, h) {
+                Ok(lines) => return Ok(layout::reading_order(lines)),
+                Err(gpu::Refused::Page(e)) => log::info!("reading this page on the CPU: {e}"),
+                Err(gpu::Refused::Gpu(e)) => {
+                    log::warn!("text recognition on the GPU failed, using the CPU from now on: {e}");
+                    g.fail(&e);
+                }
+            }
+        }
         let source = ocrs::ImageSource::from_bytes(&rgb, (width, height)).map_err(|e| err(&e))?;
         let input = self.engine.prepare_input(source).map_err(|e| err(&e))?;
-        let found = self.engine.detect_words(&input).map_err(|e| err(&e))?;
-        let lines = self.engine.find_text_lines(&input, &found);
+        let found = match self.detect_on_gpu(&rgb, width, height) {
+            Some(words) => words,
+            None => self.engine.detect_words(&input).map_err(|e| err(&e))?,
+        };
+        let mut lines = self.engine.find_text_lines(&input, &found);
         if let Some(ppocr) = &self.ppocr {
             if lines.len() > 4096 {
                 return Err(OcrError::Recognize("page has more than 4096 text lines".into()));
             }
-            let mut result = Vec::new();
-            for line in lines {
+            // Every piece of every line, then read: on the GPU in batches when it is in use,
+            // else one by one on the CPU.
+            let mut pieces: Vec<(usize, [f32; 4])> = Vec::new();
+            for (i, line) in lines.iter().enumerate() {
                 let words: Vec<[f32; 4]> = line.iter().map(|r| r.bounding_rect()).map(|r| [r.left(), r.top(), r.right(), r.bottom()]).collect();
-                let mut read = Vec::new();
-                for rect in line_pieces(&words) {
-                    let text = ppocr.recognize(&rgb, width, height, rect, self.preferred)?;
-                    if !text.is_empty() {
-                        read.push(Word { text, rect });
-                    }
+                pieces.extend(line_pieces(&words).into_iter().map(|rect| (i, rect)));
+            }
+            let texts = self.read_pieces(ppocr, &rgb, width, height, &pieces)?;
+            let mut result: Vec<Line> = Vec::new();
+            let mut last = None;
+            for ((i, rect), text) in pieces.into_iter().zip(texts) {
+                if text.is_empty() {
+                    continue;
                 }
-                if !read.is_empty() {
-                    result.push(Line { words: read });
+                if last != Some(i) || result.is_empty() {
+                    result.push(Line::default());
+                    last = Some(i);
+                }
+                if let Some(l) = result.last_mut() {
+                    l.words.push(Word { text, rect });
                 }
             }
             return Ok(layout::reading_order(result));
         }
+        let before: Vec<Option<RectF>> = lines.iter_mut().map(|l| pad_line(l)).collect();
         let read = self.engine.recognize_text(&input, &lines).map_err(|e| err(&e))?;
         use ocrs::TextItem;
         Ok(layout::reading_order(
             read.into_iter()
-                .flatten()
-                .map(|line| Line {
+                .zip(before)
+                .filter_map(|(line, before)| line.map(|l| (l, before)))
+                .map(|(line, before)| Line {
                     words: line
                         .words()
                         .map(|w| {
                             let r = w.bounding_rect();
-                            Word { text: w.to_string(), rect: [r.left() as f32, r.top() as f32, r.right() as f32, r.bottom() as f32] }
+                            Word { text: w.to_string(), rect: clip([r.left() as f32, r.top() as f32, r.right() as f32, r.bottom() as f32], before) }
                         })
                         .filter(|w| !w.text.trim().is_empty())
                         .collect(),
@@ -336,6 +484,48 @@ impl Ocr {
                 .filter(|l| !l.words.is_empty())
                 .collect(),
         ))
+    }
+
+    /// The words found on the GPU for the PP-OCR languages, when its detector is in use; `None`
+    /// sends detection to the CPU (a GPU failure also turns the GPU off).
+    fn detect_on_gpu(&self, rgb: &[u8], width: u32, height: u32) -> Option<Vec<RotatedRect>> {
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        if let Some(g) = &self.pp_gpu
+            && g.status().is_ok()
+            && self.ppocr.is_some()
+        {
+            match g.detect(&self.engine, rgb, width as usize, height as usize) {
+                Ok(Some(words)) => return Some(words),
+                Ok(None) => {}
+                Err(gpu::Refused::Page(e)) => log::info!("finding this page's words on the CPU: {e}"),
+                Err(gpu::Refused::Gpu(e)) => {
+                    log::warn!("PP-OCR on the GPU failed, using the CPU from now on: {e}");
+                    g.fail(&e);
+                }
+            }
+        }
+        let _ = (rgb, width, height);
+        None
+    }
+
+    /// The text of each piece (`(line, [left, top, right, bottom])`) in order: on the GPU when it
+    /// is in use (a GPU failure turns it off and the CPU reads the page), else with rten.
+    fn read_pieces(&self, ppocr: &ppocr::PpOcr, rgb: &[u8], width: u32, height: u32, pieces: &[(usize, [f32; 4])]) -> Result<Vec<String>, OcrError> {
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        if let Some(g) = &self.pp_gpu
+            && g.status().is_ok()
+        {
+            let rects: Vec<[f32; 4]> = pieces.iter().map(|p| p.1).collect();
+            match g.read(ppocr, rgb, width, height, &rects, self.preferred) {
+                Ok(texts) => return Ok(texts),
+                Err(gpu::Refused::Page(e)) => log::info!("reading this page on the CPU: {e}"),
+                Err(gpu::Refused::Gpu(e)) => {
+                    log::warn!("PP-OCR on the GPU failed, using the CPU from now on: {e}");
+                    g.fail(&e);
+                }
+            }
+        }
+        pieces.iter().map(|(_, rect)| ppocr.recognize(rgb, width, height, *rect, self.preferred)).collect()
     }
 }
 
@@ -422,6 +612,36 @@ pub fn text_layer(words: &[PlacedWord]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rten_imageproc::{PointF, Vec2};
+
+    /// A found line is widened by fractions of its word height: every word above and below, the
+    /// first and the last word along the line; the box returned is the line's before.
+    #[test]
+    fn a_line_is_padded_by_its_word_height() {
+        let word = |l: f32, r: f32| RotatedRect::from_rect(RectF::from_tlbr(100.0, l, 140.0, r));
+        let mut line = vec![word(10.0, 90.0), word(100.0, 200.0), word(210.0, 260.0)];
+        let before = pad_line(&mut line).unwrap();
+        assert_eq!([before.left(), before.top(), before.right(), before.bottom()], [10.0, 100.0, 260.0, 140.0]);
+        let (across, along) = (2.0 * 0.15 * 40.0, 2.0 * 0.1 * 40.0);
+        assert!(line.iter().all(|r| (r.height() - (40.0 + across)).abs() < 1e-3));
+        assert!((line[0].width() - (80.0 + along)).abs() < 1e-3 && (line[2].width() - (50.0 + along)).abs() < 1e-3);
+        assert!((line[1].width() - 100.0).abs() < 1e-3, "a word inside the line keeps its width");
+        // A box on its side (up axis horizontal) keeps its height across the line and its width
+        // along it.
+        let mut side = vec![RotatedRect::new(PointF::from_yx(0.0, 0.0), Vec2::from_yx(0.0, 1.0), 40.0, 80.0)];
+        pad_line(&mut side).unwrap();
+        assert!((side[0].height() - (80.0 + 2.0 * 0.15 * 80.0)).abs() < 1e-3 && (side[0].width() - (40.0 + 2.0 * 0.1 * 80.0)).abs() < 1e-3);
+        assert!(pad_line(&mut []).is_none());
+    }
+
+    #[test]
+    fn recognised_words_are_clipped_to_the_line_found() {
+        let line = Some(RectF::from_tlbr(100.0, 10.0, 140.0, 260.0));
+        assert_eq!(clip([4.0, 94.0, 60.0, 146.0], line), [10.0, 100.0, 60.0, 140.0]);
+        // A word wholly in the padding keeps its own box rather than none.
+        assert_eq!(clip([262.0, 94.0, 270.0, 146.0], line), [262.0, 94.0, 270.0, 146.0]);
+        assert_eq!(clip([1.0, 2.0, 3.0, 4.0], None), [1.0, 2.0, 3.0, 4.0]);
+    }
 
     #[test]
     fn places_words_through_the_mapping() {
@@ -496,6 +716,63 @@ mod tests {
         let w = PlacedWord::place(&Word { text: "Up".into(), rect: [0.0, 0.0, 50.0, 10.0] }, to_user);
         assert_eq!(w.across, [0.0, 50.0]);
         assert_eq!(w.up, [-10.0, 0.0]);
+    }
+
+    /// The current ONNX pair wins when an installation also retains both legacy models.
+    #[test]
+    fn model_discovery_prefers_the_complete_onnx_pair() {
+        let dir = tempfile::tempdir().unwrap();
+        for file in ["text-detection.onnx", "text-recognition.onnx"] {
+            std::fs::write(dir.path().join(file), b"model").unwrap();
+        }
+        let expected = Some(Models { detection: dir.path().join("text-detection.onnx"), recognition: dir.path().join("text-recognition.onnx") });
+        assert_eq!(Models::in_dir(dir.path()), expected, "a complete ONNX pair is sufficient");
+        for file in ["text-detection.rten", "text-recognition.rten"] {
+            std::fs::write(dir.path().join(file), b"model").unwrap();
+        }
+        assert_eq!(Models::in_dir(dir.path()), expected, "the complete ONNX pair takes precedence over legacy models");
+    }
+
+    /// An interrupted ONNX update still permits an intact legacy pair in the same directory.
+    #[test]
+    fn model_discovery_falls_back_to_legacy_when_the_onnx_pair_is_incomplete() {
+        for current in ["text-detection.onnx", "text-recognition.onnx"] {
+            let dir = tempfile::tempdir().unwrap();
+            for file in [current, "text-detection.rten", "text-recognition.rten"] {
+                std::fs::write(dir.path().join(file), b"model").unwrap();
+            }
+            assert_eq!(
+                Models::in_dir(dir.path()),
+                Some(Models { detection: dir.path().join("text-detection.rten"), recognition: dir.path().join("text-recognition.rten") }),
+                "{current} alone must not hide a complete legacy pair"
+            );
+        }
+    }
+
+    /// Detection and recognition must come from one complete format pair, never a mixed update.
+    #[test]
+    fn model_discovery_refuses_mixed_format_pairs() {
+        for pair in [["text-detection.onnx", "text-recognition.rten"], ["text-detection.rten", "text-recognition.onnx"]] {
+            let dir = tempfile::tempdir().unwrap();
+            for file in pair {
+                std::fs::write(dir.path().join(file), b"model").unwrap();
+            }
+            assert_eq!(Models::in_dir(dir.path()), None, "{pair:?} is not a complete model pair");
+        }
+    }
+
+    /// Existing source builds and PDFCRAFT_MODELS overrides retain their complete RTEN pair.
+    #[test]
+    fn model_discovery_keeps_legacy_only_installations() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(Models::in_dir(dir.path()), None);
+        std::fs::write(dir.path().join("text-detection.rten"), b"model").unwrap();
+        assert_eq!(Models::in_dir(dir.path()), None, "one legacy model is incomplete");
+        std::fs::write(dir.path().join("text-recognition.rten"), b"model").unwrap();
+        assert_eq!(
+            Models::in_dir(dir.path()),
+            Some(Models { detection: dir.path().join("text-detection.rten"), recognition: dir.path().join("text-recognition.rten") })
+        );
     }
 
     /// #103: every release package's layout puts the models where the installed app looks.
