@@ -30,11 +30,29 @@ pub struct Node {
     pub op: String,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
-    attrs: Vec<AttributeProto>,
+    attrs: Vec<Attr>,
+}
+
+/// The parts of an ONNX attribute the graph builders read, owned: rten-onnx's `AttributeProto`
+/// holds a `RefCell`, which would keep a graph (and everything holding one) from being shared
+/// between threads.
+#[derive(Clone, Debug, Default)]
+struct Attr {
+    name: Option<String>,
+    ints: Vec<i64>,
+    i: Option<i64>,
+    s: Option<String>,
+    f: Option<f32>,
+}
+
+impl From<&AttributeProto> for Attr {
+    fn from(a: &AttributeProto) -> Self {
+        Attr { name: a.name.clone(), ints: a.ints.clone(), i: a.i, s: a.s.clone(), f: a.f }
+    }
 }
 
 impl Node {
-    fn attr(&self, name: &str) -> Option<&AttributeProto> {
+    fn attr(&self, name: &str) -> Option<&Attr> {
         self.attrs.iter().find(|a| a.name.as_deref() == Some(name))
     }
 
@@ -151,7 +169,7 @@ impl Onnx {
             if n.output.is_empty() {
                 return Err(OnnxError::Model(format!("{op} node without output")));
             }
-            nodes.push(Node { op, inputs: n.input.clone(), outputs: n.output.clone(), attrs: n.attribute.clone() });
+            nodes.push(Node { op, inputs: n.input.clone(), outputs: n.output.clone(), attrs: n.attribute.iter().map(Attr::from).collect() });
         }
         let input = graph
             .input
