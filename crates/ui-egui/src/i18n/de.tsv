@@ -1307,6 +1307,10 @@
 	; 1 image downsampled	; 1 Bild heruntergerechnet
 	; {n} images downsampled	; {n} Bilder heruntergerechnet
 	 ({n} left as they are)	 ({n} unverändert belassen)
+	; the document is signed, so its images were left as they are	; das Dokument ist signiert, daher bleiben seine Bilder unverändert
+	; 1 signed file kept its images	; 1 signierte Datei behielt ihre Bilder
+	; {n} signed files kept their images	; {n} signierte Dateien behielten ihre Bilder
+	The document changed while its text was being recognized, so nothing was added. Run Recognize text again.	Das Dokument wurde während der Texterkennung geändert, daher wurde nichts hinzugefügt. Führen Sie „Text erkennen“ erneut aus.
 	Downsample images	Bilder herunterrechnen
 	Downsample to	Herunterrechnen auf
 	Also recognize pages that already have text	Auch Seiten erkennen, die bereits Text enthalten
