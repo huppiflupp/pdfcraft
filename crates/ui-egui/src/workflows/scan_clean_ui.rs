@@ -140,6 +140,11 @@ impl PdfCraftApp {
             self.notify_tr("Scanned pages are already being enhanced");
             return;
         }
+        // Both jobs share the progress card and capture the same document state.
+        if self.optimize_run.is_some() {
+            self.notify_tr("Optimization is already running");
+            return;
+        }
         // What's typed in a form field is part of the document (#166).
         if !self.commit_form_typing() {
             return;

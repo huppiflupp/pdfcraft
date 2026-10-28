@@ -12,7 +12,7 @@
 //! pictures each covering at least a tenth of the page are its scan. What is not cleaned is
 //! reported, never skipped silently: pages that are no scan, and scan images in a form PdfCraft
 //! can't rewrite yet (CMYK, indexed, JPEG 2000, JBIG2, CCITT fax, a stencil mask, a remapping
-//! decode array) or whose data is broken.
+//! decode array, a scan drawn inside grouped Form artwork) or whose data is broken.
 //!
 //! Like Optimize, the work is a job: [`Session::scan_clean_job`] captures the document,
 //! [`ScanCleanJob::run`] cleans anywhere (a worker thread), and [`Session::apply_scan_clean`]
@@ -31,6 +31,8 @@ const QUALITY: u8 = 90;
 /// On a scanned page, an image covering at least this share of the page is part of the scan;
 /// smaller ones (a logo or a signature pasted on) are left alone.
 const PART_OF_SCAN: f64 = 0.1;
+/// Why a scan drawn through grouped Form artwork stays as it is.
+const IN_FORM: &str = "it is drawn inside grouped artwork (a form XObject), which can't be cleaned up yet";
 
 /// How scanned pages are cleaned up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,10 +140,29 @@ impl Session {
         wanted.dedup();
         let mut report = ScanCleanReport::default();
         let mut targets: Vec<Target> = Vec::new();
+        // Form artwork already reported, and where in `report.skipped`.
+        let mut forms_reported: Vec<(ObjRef, usize)> = Vec::new();
         for page in wanted {
             let Some(info) = doc.info.pages.get(page) else { continue };
             let Some(images) = crate::scan_fields::scan_images(doc, page, info) else {
-                report.not_scanned.push(page);
+                // A scan drawn through a Form XObject is a scan all the same: say why it stays.
+                let forms: Vec<_> = crate::scan_fields::scan_forms(doc, page, info).into_iter().filter(|(_, share)| *share >= PART_OF_SCAN).collect();
+                if forms.is_empty() {
+                    report.not_scanned.push(page);
+                }
+                for (form, _) in forms {
+                    let known = form.object.and_then(|o| forms_reported.iter().find(|(r, _)| *r == o)).and_then(|(_, k)| report.skipped.get_mut(*k));
+                    match known {
+                        Some(s) if !s.pages.contains(&page) => s.pages.push(page),
+                        Some(_) => {}
+                        None => {
+                            if let Some(o) = form.object {
+                                forms_reported.push((o, report.skipped.len()));
+                            }
+                            report.skipped.push(SkippedImage { pages: vec![page], name: form.name, reason: IN_FORM.into() });
+                        }
+                    }
+                }
                 continue;
             };
             for (image, _) in images.into_iter().filter(|(_, share)| *share >= PART_OF_SCAN) {

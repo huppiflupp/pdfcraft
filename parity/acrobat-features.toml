@@ -6677,7 +6677,7 @@ status = "partial"
 commands = ["ocr.enhance_camera", "ocr.enhance"]
 tools = ["page_enhance_camera", "page_enhance_scan"]
 evidence = ["crates/engine/src/camera_clean.rs::a_shadow_and_a_yellow_cast_become_white_paper", "crates/engine/src/tests.rs::enhance_camera_page_at_a_level_whitens_a_shadowed_sheet", "crates/ui-egui/tests/it/camera.rs::the_clean_up_level_enhances_again_from_the_photo_and_keeps_the_turn", "crates/engine/src/scan_clean/tests.rs::despeckle_is_its_own_switch", "crates/automation/tests/it/automation.rs::enhance_scanned_file_cleans_the_scan_in_place_through_tools", "crates/ui-egui/tests/it/scan_clean.rs::enhance_scanned_file_cleans_the_chosen_pages_and_says_what_it_did"]
-notes = "Camera images, and scanned pages through Enhance scanned file (ocr.enhance, page_enhance_scan despeckle): isolated dark pixels (at most one dark neighbour) turn white, on grey, RGB and 1-bit scans, in place (the OCR text layer, comments and links stay). Missing: as an option of Recognize text; specks larger than two pixels; CMYK, indexed, JPEG 2000, JBIG2 and CCITT scans (reported, not changed)."
+notes = "Camera images, and scanned pages through Enhance scanned file (ocr.enhance, page_enhance_scan despeckle): isolated dark pixels (at most one dark neighbour) turn white, on grey, RGB and 1-bit scans, in place (the OCR text layer, comments and links stay). Missing: as an option of Recognize text; specks larger than two pixels; CMYK, indexed, JPEG 2000, JBIG2 and CCITT scans and scans inside form XObjects (reported, not changed)."
 
 [[feature]]
 id = "ocr.background-removal"

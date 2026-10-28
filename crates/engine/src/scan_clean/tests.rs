@@ -276,6 +276,59 @@ fn hostile_images_are_reported_not_a_panic() {
 }
 
 #[test]
+fn a_scan_drawn_inside_a_form_xobject_is_reported_not_called_no_scan() {
+    // Pages 1 and 3 draw the scan through Form Fm0 (as some scanners write it), page 2 is text.
+    let page = |contents: usize| {
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {W} {H}] /Resources << /XObject << /Fm0 4 0 R >> /Font << /F1 9 0 R >> >> /Contents {contents} 0 R >>"
+        )
+    };
+    let bytes = Pdf::new()
+        .obj("<< /Type /Catalog /Pages 2 0 R >>")
+        .obj("<< /Type /Pages /Kids [3 0 R 7 0 R 10 0 R] /Count 3 >>")
+        .obj(page(6))
+        .stream(
+            &format!("/Type /XObject /Subtype /Form /BBox [0 0 {W} {H}] /Resources << /XObject << /Im0 5 0 R >> >>"),
+            format!("q {W} 0 0 {H} 0 0 cm /Im0 Do Q"),
+        )
+        .stream(&format!("/Type /XObject /Subtype /Image /Width {W} /Height {H} /ColorSpace /DeviceGray /BitsPerComponent 8"), scan_pixels(1))
+        .stream("", "/Fm0 Do")
+        .obj(page(8))
+        .stream("", "BT /F1 12 Tf 20 380 Td (Real text) Tj ET")
+        .obj("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        .obj(page(11))
+        .stream("", "q /Fm0 Do Q")
+        .build();
+    let (mut s, id) = open(bytes);
+    let before = object(&s, id, 5);
+    let report = s.enhance_scanned_pages(id, &[], ScanCleanSettings::at(100)).unwrap();
+    assert!(report.pages.is_empty() && report.images == 0, "{report:?}");
+    assert_eq!(report.not_scanned, vec![1], "only the text page is no scan");
+    assert_eq!(report.skipped.len(), 1, "the form is reported once: {report:?}");
+    let k = &report.skipped[0];
+    assert_eq!((k.pages.as_slice(), k.name.as_str()), (&[0, 2][..], "Fm0"));
+    assert!(k.reason.contains("form XObject"), "{k:?}");
+    assert_eq!(object(&s, id, 5), before, "the picture is left as it was");
+    assert_eq!(s.get(id).unwrap().can_undo(), None);
+
+    // A page of vector artwork in a Form, holding only a small logo, is no scan.
+    let logo = Pdf::new()
+        .obj("<< /Type /Catalog /Pages 2 0 R >>")
+        .obj("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+        .obj(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {W} {H}] /Resources << /XObject << /Fm0 4 0 R >> >> /Contents 6 0 R >>"))
+        .stream(
+            &format!("/Type /XObject /Subtype /Form /BBox [0 0 {W} {H}] /Resources << /XObject << /Im0 5 0 R >> >>"),
+            format!("0 0 {W} {H} re f q 40 0 0 20 10 370 cm /Im0 Do Q"),
+        )
+        .stream("/Type /XObject /Subtype /Image /Width 40 /Height 20 /ColorSpace /DeviceGray /BitsPerComponent 8", [128; 800])
+        .stream("", "/Fm0 Do")
+        .build();
+    let (mut s, id) = open(logo);
+    let report = s.enhance_scanned_pages(id, &[], ScanCleanSettings::at(100)).unwrap();
+    assert_eq!((report.not_scanned.as_slice(), report.skipped.len()), (&[0][..], 0), "{report:?}");
+}
+
+#[test]
 fn protected_documents_keep_their_encryption_and_restrictions() {
     let protect = |user: &str, permissions: i32| {
         let mut doc = pdfcraft_cos::Document::open(Arc::new(grey_scan())).unwrap();

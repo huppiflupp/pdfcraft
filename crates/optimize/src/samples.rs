@@ -53,6 +53,9 @@ pub fn decode_samples(doc: &Document, s: &Stream) -> Result<Samples, NotDecoded>
     if matches!(d.get(b"ImageMask").map(|v| doc.resolve(v)).as_deref(), Some(Object::Bool(true))) {
         return Err(NotDecoded::StencilMask);
     }
+    // The filter first: a JPEG 2000 image may leave its colour space and bit depth to the data,
+    // and the report should name the format, not the missing entries.
+    let jpeg = is_dct(s).ok_or(NotDecoded::Filter)?;
     let n = d.get(b"ColorSpace").and_then(|cs| components(doc, cs)).ok_or(NotDecoded::ColourSpace)?;
     let bpc = d.get(b"BitsPerComponent").map(|v| doc.resolve(v)).and_then(|v| v.as_int()).unwrap_or(0);
     let bilevel = match bpc {
@@ -60,7 +63,6 @@ pub fn decode_samples(doc: &Document, s: &Stream) -> Result<Samples, NotDecoded>
         1 if n == 1 => true,
         other => return Err(NotDecoded::BitDepth(other)),
     };
-    let jpeg = is_dct(s).ok_or(NotDecoded::Filter)?;
     let width = d.get(b"Width").map(|v| doc.resolve(v)).and_then(|v| v.as_int()).and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
     let height = d.get(b"Height").map(|v| doc.resolve(v)).and_then(|v| v.as_int()).and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
     if width == 0 || height == 0 {
@@ -258,6 +260,11 @@ mod tests {
         assert_eq!(base(&[("ColorSpace", Object::name("DeviceCMYK"))], vec![0; 64]), Err(NotDecoded::ColourSpace));
         assert_eq!(base(&[("BitsPerComponent", Object::Int(4))], vec![0; 8]), Err(NotDecoded::BitDepth(4)));
         assert_eq!(base(&[("Filter", Object::name("JBIG2Decode"))], vec![0; 8]), Err(NotDecoded::Filter));
+        // JPEG 2000 may leave the colour space and bit depth to its data: the format is the reason.
+        let jpx = |dict: &[(&str, Object)]| decode_samples(&doc(), &image(dict, vec![0; 8]));
+        let size = [("Width", Object::Int(4)), ("Height", Object::Int(4)), ("Filter", Object::name("JPXDecode"))];
+        assert_eq!(jpx(&size), Err(NotDecoded::Filter));
+        assert_eq!(jpx(&[size[0].clone(), size[1].clone(), size[2].clone(), ("ColorSpace", Object::name("DeviceRGB"))]), Err(NotDecoded::Filter));
         assert_eq!(base(&[("ImageMask", Object::Bool(true))], vec![0; 8]), Err(NotDecoded::StencilMask));
         assert_eq!(base(&[("Decode", Object::Array(vec![Object::Int(1), Object::Int(0)]))], vec![0; 16]), Err(NotDecoded::Decode));
         // Too short, a huge size, a broken JPEG, no size at all.
