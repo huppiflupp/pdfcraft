@@ -4,14 +4,15 @@
 //! GPU (`pdfcraft-ml`): ocrs prepares the image, the GPU finds the text pixels, words come from
 //! the mask as ocrs finds them, ocrs finds the lines, the lines are padded (`pad_line`), ocrs cuts
 //! the line images, the GPU reads them, and the characters get their boxes from their CTC steps
-//! as ocrs places them. A self-check against rten decides at load whether the GPU is used, and
-//! any error later sends that call and every later one back to the CPU.
+//! as ocrs places them. A self-check against rten decides at load whether the GPU is used. A
+//! page too large for the GPU's limits is read on the CPU; a failure of the GPU itself sends that
+//! page and every later one back to the CPU.
 
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use pdfcraft_ml::gpu::{Detector, Gpu, Recognizer};
+use pdfcraft_ml::gpu::{Detector, Gpu, GpuError, Recognizer};
 use pdfcraft_ml::onnx::Onnx;
 use rten_imageproc::{BoundingRect, RectF, RotatedRect, find_contours, min_area_rect, simplify_polygon};
 use rten_tensor::NdTensor;
@@ -24,6 +25,26 @@ const BLACK: f32 = -0.5;
 /// ocrs' recognition batches: line widths rounded up to this, at most this many lines.
 const GROUP_WIDTH: usize = 50;
 const GROUP_LINES: usize = 20;
+
+/// Why a page was not read on the GPU.
+#[derive(Debug)]
+pub(crate) enum Refused {
+    /// Only this page: it is beyond the GPU's limits (checked before anything is submitted), or
+    /// ocrs refused it. The CPU reads it and the GPU stays in use.
+    Page(String),
+    /// The GPU itself (a lost device, a validation or out-of-memory error, or a model the
+    /// kernels got wrong, which every page would meet): the CPU reads this and every later page.
+    Gpu(String),
+}
+
+impl From<GpuError> for Refused {
+    fn from(e: GpuError) -> Self {
+        match e {
+            GpuError::TooLarge(_) => Refused::Page(e.to_string()),
+            GpuError::NoAdapter(_) | GpuError::Run(_) | GpuError::Model(_) => Refused::Gpu(e.to_string()),
+        }
+    }
+}
 
 pub(crate) struct GpuOcr {
     gpu: Gpu,
@@ -129,17 +150,17 @@ impl GpuOcr {
     }
 
     /// Recognise the text of an RGB page (`w` x `h`, 3 bytes a pixel).
-    pub(crate) fn recognize(&self, engine: &ocrs::OcrEngine, rgb: &[u8], w: usize, h: usize) -> Result<Vec<Line>, String> {
-        let source = ocrs::ImageSource::from_bytes(rgb, (w as u32, h as u32)).map_err(|e| e.to_string())?;
-        let input = engine.prepare_input(source).map_err(|e| e.to_string())?;
-        let mask = self.det.detect(&self.gpu, rgb, w, h, engine.detection_threshold()).map_err(|e| e.to_string())?;
+    pub(crate) fn recognize(&self, engine: &ocrs::OcrEngine, rgb: &[u8], w: usize, h: usize) -> Result<Vec<Line>, Refused> {
+        let source = ocrs::ImageSource::from_bytes(rgb, (w as u32, h as u32)).map_err(|e| Refused::Page(e.to_string()))?;
+        let input = engine.prepare_input(source).map_err(|e| Refused::Page(e.to_string()))?;
+        let mask = self.det.detect(&self.gpu, rgb, w, h, engine.detection_threshold())?;
         let words = word_rects(&mask, w, h);
         let mut lines = engine.find_text_lines(&input, &words);
         let before: Vec<Option<RectF>> = lines.iter_mut().map(|l| pad_line(l)).collect();
         // ocrs' line images, batched as ocrs batches them.
         let mut groups: std::collections::BTreeMap<usize, Vec<(usize, NdTensor<f32, 2>)>> = Default::default();
         for (i, line) in lines.iter().enumerate().filter(|(_, l)| !l.is_empty()) {
-            let img = engine.prepare_recognition_input(&input, line).map_err(|e| e.to_string())?;
+            let img = engine.prepare_recognition_input(&input, line).map_err(|e| Refused::Page(e.to_string()))?;
             groups.entry(img.size(1).next_multiple_of(GROUP_WIDTH)).or_default().push((i, img));
         }
         let (mut batches, mut members) = (Vec::new(), Vec::new());
@@ -160,7 +181,7 @@ impl GpuOcr {
                 batches.push((data, chunk.len(), width));
             }
         }
-        let best = self.rec.recognize(&self.gpu, &batches).map_err(|e| e.to_string())?.best;
+        let best = self.rec.recognize(&self.gpu, &batches)?.best;
         let mut out: Vec<Option<Line>> = vec![None; lines.len()];
         for ((i, lw, width), steps) in members.into_iter().zip(best) {
             let (Some(line), Some(slot)) = (lines.get(i), out.get_mut(i)) else { continue };
@@ -257,6 +278,16 @@ fn place_words(line: &[RotatedRect], steps: &[u32], line_width: usize, batch_wid
 mod tests {
     use super::*;
     use rten_imageproc::RectF;
+
+    /// A page beyond the GPU's limits is read on the CPU without turning the GPU off; a failure
+    /// of the GPU itself turns it off.
+    #[test]
+    fn only_a_failing_gpu_turns_the_gpu_off() {
+        assert!(matches!(Refused::from(GpuError::TooLarge("a 5000000000-byte buffer".into())), Refused::Page(_)));
+        for e in [GpuError::Run("device lost".into()), GpuError::Model("detector output".into()), GpuError::NoAdapter("none".into())] {
+            assert!(matches!(Refused::from(e), Refused::Gpu(_)));
+        }
+    }
 
     /// Characters take boxes from their steps, words split at spaces, padding is dropped.
     #[test]

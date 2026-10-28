@@ -247,7 +247,8 @@ impl Ocr {
                 if rgb.len() == w * h { rgb.iter().flat_map(|&v| [v, v, v]).collect::<Vec<u8>>().into() } else { rgb.as_ref().into() };
             match g.recognize(&self.engine, &rgb3, w, h) {
                 Ok(lines) => return Ok(lines),
-                Err(e) => {
+                Err(gpu::Refused::Page(e)) => log::info!("reading this page on the CPU: {e}"),
+                Err(gpu::Refused::Gpu(e)) => {
                     log::warn!("text recognition on the GPU failed, using the CPU from now on: {e}");
                     g.fail(&e);
                 }
