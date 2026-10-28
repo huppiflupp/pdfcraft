@@ -9337,8 +9337,8 @@ fn repeated_backdrop_artwork_survives_background_undo_redo_and_both_save_modes()
 }
 
 /// Saving moves `edit_generation` (autosave needs that) but not `content_generation`, which work
-/// begun on the document (a Recognize text run) checks its result against; edits, undo and
-/// reverting move both, and `content_generation` never comes back to an earlier value.
+/// begun on the document (a Recognize text run) checks its result against; edits, undo,
+/// reverting and signing move both, and `content_generation` never comes back to an earlier value.
 #[test]
 fn saving_leaves_the_content_generation_alone() {
     let mut s = Session::new();
@@ -9358,5 +9358,9 @@ fn saving_leaves_the_content_generation_alone() {
     let c2 = content(&s);
     assert!(c2 > c1, "undo moves it, to a value it never had");
     s.revert(id).unwrap();
-    assert!(content(&s) > c2, "reverting moves it");
+    let c3 = content(&s);
+    assert!(c3 > c2, "reverting moves it");
+    let bytes = s.save_bytes(id).unwrap();
+    s.mark_signed(id, bytes, None).unwrap();
+    assert!(content(&s) > c3, "signing moves it: an edit begun before would land after the signature");
 }

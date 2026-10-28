@@ -307,7 +307,7 @@ impl Document {
     }
 
     /// Like [`Self::edit_generation`], but saving leaves it alone: it moves only when what the
-    /// document holds may have changed (an edit, undo, redo, revert or reload), so work begun on
+    /// document holds may have changed (an edit, undo, redo, revert, reload or signing), so work begun on
     /// the document stays valid across a save. It never repeats a value it had before.
     pub fn content_generation(&self) -> u64 {
         // Every save bumps both counters; anything else bumps only `generation`.
