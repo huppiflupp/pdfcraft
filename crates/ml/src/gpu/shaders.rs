@@ -17,6 +17,8 @@ fn activate(v: f32, act: u32) -> f32 {
     if (act == 2u) { return 1.0 / (1.0 + exp(-v)); }
     if (act == 3u) { return 0.5 * v * (1.0 + erf_approx(v * 0.70710678118654752)); }
     if (act == 4u) { return v / (1.0 + exp(-v)); }
+    // HardSwish (ONNX): x * max(0, min(1, x / 6 + 1 / 2)).
+    if (act == 5u) { return v * clamp(v / 6.0 + 0.5, 0.0, 1.0); }
     return v;
 }
 "#;

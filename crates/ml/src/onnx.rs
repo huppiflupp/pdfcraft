@@ -50,6 +50,10 @@ impl Node {
         self.attr(name).and_then(|a| a.s.clone())
     }
 
+    pub fn float(&self, name: &str) -> Option<f32> {
+        self.attr(name).and_then(|a| a.f)
+    }
+
     /// The first input, or "" for a node without one.
     pub fn input(&self, k: usize) -> &str {
         self.inputs.get(k).map_or("", String::as_str)

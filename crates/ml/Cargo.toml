@@ -23,3 +23,9 @@ bytemuck = { version = "1", optional = true }
 half = { version = "2", optional = true }
 rten-onnx = { version = "0.26.0", optional = true }
 thiserror = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# The CPU reference the GPU is checked against, and page images for the line benchmark.
+rten = { version = "0.26.0", default-features = false, features = ["onnx_format"] }
+rten-tensor = "0.26.0"
+image = { version = "0.25", default-features = false, features = ["png"] }

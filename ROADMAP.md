@@ -684,6 +684,7 @@ Newest first: the date, what moved, and the new overall estimate.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-28 | minor | M10, #2285: `pdfcraft-ml` runs PP-OCR recognition models (PP-OCRv6, PP-OCRv5 Latin) on the GPU: an N-dimensional graph executor, the final Softmax and the ranking of each step's classes in one kernel (optional class mask, the best few classes read back); same best class as rten on every step of a synthetic line for both models; 14–26× rten per line on an RTX 5080. Not yet used by the app. Estimates unchanged. |
 | 2026-10-28 | minor | M10, #2285: opt-in GPU text recognition (`PDFCRAFT_OCR_GPU=1`): new `pdfcraft-ml` (L3) runs the ocrs ONNX models in wgpu compute shaders, kept only after a self-check against rten, with the CPU as fallback on any error; same text as the CPU on a rendered page, a 4-page batch 4.3 s → 2.1 s. Estimates unchanged. |
 | 2026-10-28 | minor | M10: Recognize text widens each found line by fractions of its word height before reading it, so the first and last letters are no longer clipped at 300 dpi (word errors on synthetic 150–400 dpi pages 3.8 % → 0.3 %); word boxes keep their size. Estimates unchanged. |
 | 2026-10-27 | minor | M10: OCR stages SHA-256-verified ONNX models after the upstream RTEN URL brownout; discovery prefers a complete ONNX pair per directory, falls back to a complete RTEN pair, and never mixes formats or directories; language/web limits and estimates unchanged. |

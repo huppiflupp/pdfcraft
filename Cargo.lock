@@ -4483,8 +4483,11 @@ version = "0.14.0"
 dependencies = [
  "bytemuck",
  "half",
+ "image",
  "pollster 0.4.0",
+ "rten",
  "rten-onnx",
+ "rten-tensor",
  "thiserror 2.0.21",
  "wgpu",
 ]

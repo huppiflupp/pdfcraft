@@ -13,7 +13,7 @@ printing are counted in their feature areas). **Platforms ≈ 70% ready, 15–30
 
 | Feature | Acrobat (macOS / Windows) | PdfCraft macOS | PdfCraft Windows | PdfCraft Linux / FreeBSD | PdfCraft web | Evidence |
 |---|---|---|---|---|---|---|
-| GPU text recognition (OCR) | not documented | opt-in (`PDFCRAFT_OCR_GPU=1`): ocrs models in wgpu compute shaders (Metal); CPU fallback | same (DX12/Vulkan) | same (Vulkan); measured 2× on a 4-page batch, 6–7× for the models alone | no: CPU | `crates/ml`, `crates/ocr` (feature `gpu`); #2285 |
+| GPU text recognition (OCR) | not documented | opt-in (`PDFCRAFT_OCR_GPU=1`): ocrs models in wgpu compute shaders (Metal); CPU fallback | same (DX12/Vulkan) | same (Vulkan); measured 2× on a 4-page batch, 6–7× for the models alone. PP-OCR recognition (PP-OCRv6, PP-OCRv5 Latin) runs in `crates/ml` too (14–26× rten per line on an RTX 5080), not yet used by the app | no: CPU | `crates/ml`, `crates/ocr` (feature `gpu`); #2285 |
 | GPU page rendering | yes (Page Display ▸ GPU-accelerated rendering) | no: CPU raster, GPU for UI compositing (wgpu, Metal) | no (wgpu DX12, GL fallback) | no (wgpu Vulkan/GL) | no (WebGL/WebGPU UI) | `crates/render`; gap 20 |
 | Multi-threaded rendering | yes | yes (render pool, tiles, watchdog) | yes | yes | single thread | `view.render-priority` |
 | HiDPI / Retina | yes | yes | yes, per-monitor DPI v2 (#324, #725) | yes | yes | text blurry at 1080p/1440p (#730) |

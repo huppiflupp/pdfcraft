@@ -7,6 +7,8 @@
 
 mod detector;
 mod graph;
+mod nd;
+mod pp;
 mod recognizer;
 pub(crate) mod shaders;
 
@@ -14,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub use detector::Detector;
+pub use pp::{PpRecognizer, Step};
 pub use recognizer::Recognizer;
 
 use crate::onnx::OnnxError;
@@ -143,6 +146,17 @@ impl Gpu {
             ("mask_up", shader(MASK_UP)),
             ("gemm", GEMM.to_string()),
             ("recurrence", rec),
+            ("nd_binary", shader(nd::BINARY)),
+            ("nd_unary", shader(nd::UNARY)),
+            ("nd_reduce_mean", shader(nd::REDUCE_MEAN)),
+            ("nd_reduce_mean_wide", nd::REDUCE_MEAN_WIDE.to_string()),
+            ("nd_layer_norm", shader(nd::LAYER_NORM)),
+            ("nd_softmax", shader(nd::SOFTMAX)),
+            ("nd_copy", shader(nd::COPY)),
+            ("nd_pool", shader(nd::POOL)),
+            ("nd_affine", shader(nd::CHANNEL_AFFINE)),
+            ("nd_bgemm", shader(nd::BGEMM)),
+            ("softmax_topk", nd::SOFTMAX_TOPK.to_string()),
         ];
         let mut pipes = HashMap::new();
         for (name, src) in sources {
@@ -177,6 +191,14 @@ impl Gpu {
         result
     }
 
+    /// [`Self::storage`] for at least `floats` values, rounded up to one of four sizes per power
+    /// of two (at most a quarter more), so that buffers freed while a graph is being recorded fit
+    /// later values of a similar size: the pool only hands out exact sizes, and a buffer dropped
+    /// before its work is submitted still holds its memory until that work is done.
+    pub(crate) fn storage_rounded(&self, floats: usize) -> Result<Buf, GpuError> {
+        self.storage(rounded(floats).ok_or_else(|| GpuError::TooLarge(format!("{floats} values")))?)
+    }
+
     /// A scratch buffer of `floats` 32-bit values, reused from the pool when one fits exactly.
     pub(crate) fn storage(&self, floats: usize) -> Result<Buf, GpuError> {
         let size = floats.max(1).checked_mul(4).map(|s| s as u64).ok_or_else(|| GpuError::TooLarge(format!("{floats} values")))?;
@@ -197,13 +219,27 @@ impl Gpu {
         })))
     }
 
-    /// Give scratch buffers back once the work using them is submitted (queue order keeps reuse
-    /// by later work safe). Only buffers made by [`Self::storage`] are kept, up to [`POOL_CAP`].
+    /// Give scratch buffers back once the work using them is recorded (wgpu orders later use
+    /// after it). Only buffers made by [`Self::storage`] are kept, up to [`POOL_CAP`]: a full pool
+    /// drops buffers of other sizes first, since the sizes still in use are the ones just freed
+    /// (each batch of lines has its own width, so its own sizes).
     pub(crate) fn recycle(&self, bufs: impl IntoIterator<Item = Buf>) {
         let Ok(mut pool) = self.pool.lock() else { return };
         let scratch = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC;
         for b in bufs {
-            if b.usage() != scratch || pool.1.saturating_add(b.size()) > POOL_CAP {
+            if b.usage() != scratch || b.size() > POOL_CAP {
+                continue;
+            }
+            while pool.1.saturating_add(b.size()) > POOL_CAP {
+                let other = pool.0.iter().find(|(s, v)| **s != b.size() && !v.is_empty()).map(|(s, _)| *s);
+                let Some(size) = other.or_else(|| pool.0.iter().find(|(_, v)| !v.is_empty()).map(|(s, _)| *s)) else { break };
+                let evicted = pool.0.get_mut(&size).and_then(Vec::pop);
+                pool.1 = pool.1.saturating_sub(evicted.map_or(0, |e| e.size()));
+                if pool.0.get(&size).is_some_and(Vec::is_empty) {
+                    pool.0.remove(&size);
+                }
+            }
+            if pool.1.saturating_add(b.size()) > POOL_CAP {
                 continue;
             }
             pool.1 += b.size();
@@ -278,6 +314,13 @@ impl Gpu {
         self.dispatch(enc, pipe, buffers, (to_u32(x)?, to_u32(y)?, 1))
     }
 
+    /// A workgroup per row over `rows` rows, on a 2D grid (row = y * width + x).
+    pub(crate) fn rows(&self, enc: &mut wgpu::CommandEncoder, pipe: &str, buffers: &[&Buf], rows: usize) -> Result<(), GpuError> {
+        let max = self.limits.max_compute_workgroups_per_dimension as usize;
+        let (x, y) = (rows.min(max), rows.div_ceil(max.max(1)));
+        self.dispatch(enc, pipe, buffers, (to_u32(x)?, to_u32(y)?, 1))
+    }
+
     /// Submit `enc` with a copy of the first `count` 32-bit values of `buf`, wait, and return
     /// them.
     pub(crate) fn read(&self, mut enc: wgpu::CommandEncoder, buf: &Buf, count: usize) -> Result<Vec<u32>, GpuError> {
@@ -312,6 +355,16 @@ impl Gpu {
     }
 }
 
+/// `n` rounded up to 1, 1.25, 1.5 or 1.75 times a power of two (powers of two up to 1024).
+fn rounded(n: usize) -> Option<usize> {
+    let n = n.max(1);
+    if n <= 1024 {
+        return n.checked_next_power_of_two();
+    }
+    let step = (1usize << n.ilog2()) / 4;
+    n.div_ceil(step).checked_mul(step)
+}
+
 pub(crate) fn to_u32(v: usize) -> Result<u32, GpuError> {
     u32::try_from(v).map_err(|_| GpuError::TooLarge(format!("{v} does not fit 32 bits")))
 }
@@ -319,4 +372,24 @@ pub(crate) fn to_u32(v: usize) -> Result<u32, GpuError> {
 /// `v` as u32 values for a uniform or parameter buffer.
 pub(crate) fn params(v: &[usize]) -> Result<Vec<u32>, GpuError> {
     v.iter().map(|&x| to_u32(x)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rounded;
+
+    #[test]
+    fn rounded_sizes_waste_at_most_a_quarter() {
+        assert_eq!(rounded(0), Some(1));
+        assert_eq!(rounded(1000), Some(1024));
+        assert_eq!(rounded(1025), Some(1280));
+        assert_eq!(rounded(1280), Some(1280));
+        assert_eq!(rounded(1500), Some(1536));
+        assert_eq!(rounded(2047), Some(2048));
+        for n in [1025usize, 3000, 77_777, 123_456_789] {
+            let r = rounded(n).unwrap_or(0);
+            assert!(r >= n && r * 4 <= n * 5 + 4, "{n} -> {r}");
+        }
+        assert_eq!(rounded(usize::MAX), None);
+    }
 }
