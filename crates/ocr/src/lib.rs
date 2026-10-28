@@ -15,6 +15,7 @@
 use rten_imageproc::BoundingRect;
 use std::path::{Path, PathBuf};
 
+mod layout;
 mod ppocr;
 
 pub use pdfcraft_fonts::helvetica_width;
@@ -46,6 +47,7 @@ const PP_OCR: &[(&str, &str, &str, usize)] = &[
     ("fi", LATIN_MODEL, LATIN_DICTIONARY, 504),
     ("cs", LATIN_MODEL, LATIN_DICTIONARY, 504),
     ("pl", LATIN_MODEL, LATIN_DICTIONARY, 504),
+    ("v6", "v6-recognition.onnx", "v6-keys.txt", 18710),
 ];
 
 /// The recognition model's alphabet, as it was trained (ocrs-models' `DEFAULT_ALPHABET`): its
@@ -73,6 +75,7 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("fi", "Finnish"),
     ("cs", "Czech"),
     ("pl", "Polish"),
+    ("v6", "PP-OCRv6 (benchmark only)"),
 ];
 
 /// Letters a document language prefers when the recogniser is unsure. Empty means no preference.
@@ -214,8 +217,10 @@ fn line_pieces(words: &[[f32; 4]]) -> Vec<[f32; 4]> {
     let mut pieces: Vec<[f32; 4]> = Vec::new();
     let mut current: Option<[f32; 4]> = None;
     for &w in words.iter().filter(|w| w.iter().all(|v| v.is_finite())) {
+        // A gap far wider than a word space is a gutter between columns: never read across it.
+        let gutter = |c: [f32; 4]| w[0] - c[2] > layout::COLUMN_GAP * (c[3] - c[1]).max(w[3] - w[1]).max(1.0);
         current = Some(match current {
-            Some(c) if aspect(union(c, w)) > PIECE_ASPECT => {
+            Some(c) if aspect(union(c, w)) > PIECE_ASPECT || gutter(c) => {
                 pieces.push(c);
                 w
             }
@@ -311,25 +316,26 @@ impl Ocr {
                     result.push(Line { words: read });
                 }
             }
-            return Ok(result);
+            return Ok(layout::reading_order(result));
         }
         let read = self.engine.recognize_text(&input, &lines).map_err(|e| err(&e))?;
         use ocrs::TextItem;
-        Ok(read
-            .into_iter()
-            .flatten()
-            .map(|line| Line {
-                words: line
-                    .words()
-                    .map(|w| {
-                        let r = w.bounding_rect();
-                        Word { text: w.to_string(), rect: [r.left() as f32, r.top() as f32, r.right() as f32, r.bottom() as f32] }
-                    })
-                    .filter(|w| !w.text.trim().is_empty())
-                    .collect(),
-            })
-            .filter(|l| !l.words.is_empty())
-            .collect())
+        Ok(layout::reading_order(
+            read.into_iter()
+                .flatten()
+                .map(|line| Line {
+                    words: line
+                        .words()
+                        .map(|w| {
+                            let r = w.bounding_rect();
+                            Word { text: w.to_string(), rect: [r.left() as f32, r.top() as f32, r.right() as f32, r.bottom() as f32] }
+                        })
+                        .filter(|w| !w.text.trim().is_empty())
+                        .collect(),
+                })
+                .filter(|l| !l.words.is_empty())
+                .collect(),
+        ))
     }
 }
 
