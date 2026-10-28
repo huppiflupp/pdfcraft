@@ -25,24 +25,33 @@ const MIN_WORD_HEIGHT: f64 = 4.0;
 
 /// Whether `page` is a picture of a page: images cover most of it.
 pub(crate) fn is_scan(doc: &Document, page: usize, info: &PageInfo) -> bool {
+    scan_images(doc, page, info).is_some()
+}
+
+/// The raster images (larger than one pixel) `page` draws, each with the share of the page (its
+/// crop box) it covers, when together they cover most of it ([`is_scan`]); `None` otherwise.
+/// Enhance ▸ Scanned document cleans these up ([`crate::scan_clean`]).
+pub(crate) fn scan_images(doc: &Document, page: usize, info: &PageInfo) -> Option<Vec<(pdfcraft_edit::PageImage, f64)>> {
     let [cx0, cy0, cx1, cy1] = info.crop.map(f64::from);
     let page_area = (cx1 - cx0) * (cy1 - cy0);
     if !page_area.is_finite() || page_area <= 0.0 {
-        return false;
+        return None;
     }
-    let covered: f64 = doc
+    let images: Vec<(pdfcraft_edit::PageImage, f64)> = doc
         .page_images(page)
-        .iter()
+        .into_iter()
         .filter(|i| !i.is_form && i.width > 1 && i.height > 1)
         .map(|i| {
             let r = i.visible_rect.unwrap_or(i.rect);
             let w = (r[2].min(cx1) - r[0].max(cx0)).max(0.0);
             let h = (r[3].min(cy1) - r[1].max(cy0)).max(0.0);
-            w * h
+            let share = w * h / page_area;
+            (i, share)
         })
-        .filter(|a| a.is_finite())
-        .sum();
-    covered >= COVERED * page_area
+        .filter(|(_, share)| share.is_finite())
+        .collect();
+    let covered: f64 = images.iter().map(|(_, share)| share).sum();
+    (covered >= COVERED).then_some(images)
 }
 
 /// The page as displayed, in points with y up: where detection on a scan works.
