@@ -110,12 +110,14 @@ impl Line {
 
 /// How far each found line is widened before its image is cut out for recognition, as fractions
 /// of the line's median word height: above and below every word, and before its first and after
-/// its last word. ocrs grows each word box by a fixed 3 pixels, under one pixel of its detection
-/// model's 800 x 600 input once a page is rendered at 300 dpi: the line images clipped the first
-/// and last letters ("The" read as "he", "and" as "an", closing full stops lost), and the more so
-/// the higher the resolution. Chosen on synthetic pages at 150 to 400 dpi, where the word error
-/// rate fell from 3.8 % to 0.3 %; neighbouring values do about as well.
-const LINE_PAD_ACROSS: f32 = 0.15;
+/// its last word. ocrs grows each word box by a fixed 3 pixels, a sliver of a letter on a page
+/// scanned at 300 dpi or more: the line images clipped the first and last letters ("The" read as
+/// "he", "and" as "an", closing full stops lost), and the more so the higher the resolution.
+/// Chosen on synthetic pages at 150 to 400 dpi, clean and noisy, and on MDPBench's pages. More
+/// padding above and below costs small, noisy text (the recogniser scales each line image to a
+/// fixed height, so the margin leaves less height for the letters): at 0.15 the 8 pt "Telefon"
+/// label of a noisy form scanned at 150 dpi read "Teleton".
+const LINE_PAD_ACROSS: f32 = 0.12;
 const LINE_PAD_ALONG: f32 = 0.1;
 
 /// Widen `line` (its word boxes, in reading order) as [`LINE_PAD_ACROSS`] and
@@ -300,7 +302,7 @@ mod tests {
         let mut line = vec![word(10.0, 90.0), word(100.0, 200.0), word(210.0, 260.0)];
         let before = pad_line(&mut line).unwrap();
         assert_eq!([before.left(), before.top(), before.right(), before.bottom()], [10.0, 100.0, 260.0, 140.0]);
-        let (across, along) = (2.0 * 0.15 * 40.0, 2.0 * 0.1 * 40.0);
+        let (across, along) = (2.0 * 0.12 * 40.0, 2.0 * 0.1 * 40.0);
         assert!(line.iter().all(|r| (r.height() - (40.0 + across)).abs() < 1e-3));
         assert!((line[0].width() - (80.0 + along)).abs() < 1e-3 && (line[2].width() - (50.0 + along)).abs() < 1e-3);
         assert!((line[1].width() - 100.0).abs() < 1e-3, "a word inside the line keeps its width");
@@ -308,7 +310,7 @@ mod tests {
         // along it.
         let mut side = vec![RotatedRect::new(PointF::from_yx(0.0, 0.0), Vec2::from_yx(0.0, 1.0), 40.0, 80.0)];
         pad_line(&mut side).unwrap();
-        assert!((side[0].height() - (80.0 + 2.0 * 0.15 * 80.0)).abs() < 1e-3 && (side[0].width() - (40.0 + 2.0 * 0.1 * 80.0)).abs() < 1e-3);
+        assert!((side[0].height() - (80.0 + 2.0 * 0.12 * 80.0)).abs() < 1e-3 && (side[0].width() - (40.0 + 2.0 * 0.1 * 80.0)).abs() < 1e-3);
         assert!(pad_line(&mut []).is_none());
     }
 
