@@ -32,6 +32,9 @@ pub struct Document {
     pub(crate) generation: u64,
     /// How many of the `generation` bumps were saves (see [`Self::content_generation`]).
     pub(crate) saves: u64,
+    /// How many of the `generation` bumps changed only how the document is shown (hidden
+    /// comments, reading colours), not what it holds (see [`Self::content_generation`]).
+    pub(crate) view_changes: u64,
     /// The generation last handed out by `autosave_snapshots`.
     pub(crate) snapshot_generation: u64,
     /// Why the document cannot be edited (e.g. encryption), if so.
@@ -306,12 +309,14 @@ impl Document {
         self.editor.as_ref().map(|e| crate::text_style_bookmarks::styles(&e.cos)).unwrap_or_default()
     }
 
-    /// Like [`Self::edit_generation`], but saving leaves it alone: it moves only when what the
-    /// document holds may have changed (an edit, undo, redo, revert, reload or signing), so work begun on
-    /// the document stays valid across a save. It never repeats a value it had before.
+    /// Like [`Self::edit_generation`], but saving, hiding comments and changing the reading
+    /// colours leave it alone: it moves only when what the document holds may have changed (an
+    /// edit, undo, redo, revert, reload or signing), so work begun on the document stays valid
+    /// across a save or a change of view. It never goes back to a value it had before.
     pub fn content_generation(&self) -> u64 {
-        // Every save bumps both counters; anything else bumps only `generation`.
-        self.generation.saturating_sub(self.saves)
+        // A save or a view change bumps `generation` and its own counter, so the difference
+        // stays; anything else bumps only `generation` and moves it on.
+        self.generation.saturating_sub(self.saves).saturating_sub(self.view_changes)
     }
 
     /// Edit a PDF ▸ Edit text: the lines of existing text on `page` (0-based).

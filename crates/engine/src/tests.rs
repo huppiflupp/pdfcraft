@@ -9336,9 +9336,24 @@ fn repeated_backdrop_artwork_survives_background_undo_redo_and_both_save_modes()
     black(&s, rewritten);
 }
 
-/// Saving moves `edit_generation` (autosave needs that) but not `content_generation`, which work
-/// begun on the document (a Recognize text run) checks its result against; edits, undo,
-/// reverting and signing move both, and `content_generation` never comes back to an earlier value.
+#[test]
+fn downsampling_to_no_resolution_is_refused() {
+    let mut s = Session::new();
+    let pdf = s.create_blank(595.0, 842.0, 1).unwrap();
+    let id = s.open("a.pdf", None, pdf, None).unwrap();
+    for ppi in [0.0, -72.0, f64::NAN, f64::INFINITY] {
+        let r = s.apply(id, Edit::DownsampleImages { pages: vec![0], ppi });
+        assert!(matches!(r, Err(EditError::Invalid(ref m)) if m.contains("resolution")), "{ppi}: {r:?}");
+    }
+    let d = s.get(id).unwrap();
+    assert!(!d.dirty, "nothing changed");
+    assert!(d.undo_label().is_none(), "no empty undo step");
+}
+
+/// Saving, hiding comments and reading colours move `edit_generation` (autosave and caches need
+/// that) but not `content_generation`, which work begun on the document (a Recognize text run)
+/// checks its result against; edits, undo, reverting and signing move both, and
+/// `content_generation` never comes back to an earlier value.
 #[test]
 fn saving_leaves_the_content_generation_alone() {
     let mut s = Session::new();
@@ -9354,6 +9369,13 @@ fn saving_leaves_the_content_generation_alone() {
     s.mark_saved(id, bytes, None).unwrap();
     assert!(edit(&s) > e1, "a save moves the edit generation");
     assert_eq!(content(&s), c1, "a save leaves the content generation");
+    // Hiding comments and reading colours change only how it is shown: the renderer is new, so
+    // the edit generation moves, but a Recognize text run begun before still applies.
+    let e2 = edit(&s);
+    assert!(s.set_hide_comments(id, true));
+    assert!(s.set_reading_colors(id, ReadingColors::WHITE_ON_BLACK));
+    assert!(edit(&s) > e2, "a view change moves the edit generation");
+    assert_eq!(content(&s), c1, "a view change leaves the content generation");
     s.undo(id).unwrap();
     let c2 = content(&s);
     assert!(c2 > c1, "undo moves it, to a value it never had");
