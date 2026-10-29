@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use pdfcraft_render::{PageInfo, PageRenderer, RenderConfig, RenderRequest, RequestKind};
 
-pub use pdfcraft_ocr::{LANGUAGES, Models, Ocr, OcrError, PlacedWord};
+pub use pdfcraft_ocr::{Cell, LANGUAGES, Models, Ocr, OcrError, PlacedWord, Table};
 
 use crate::{DocId, Edit, EditError, Session};
 
@@ -70,16 +70,30 @@ pub struct OcrPage {
     /// How many of `line_lengths` each paragraph holds, in reading order. Without the layout
     /// model the page is one paragraph.
     pub paragraph_lengths: Vec<usize>,
+    /// The paragraphs that are tables (with the table structure model installed).
+    pub tables: Vec<OcrTable>,
     /// Words recognised but left out because the page's own text already has them there.
     pub already_on_page: usize,
     /// Why the page was not read, if it was skipped.
     pub skipped: Option<String>,
 }
 
+/// A recognised table: which paragraph holds its cells, and its rows and cells.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OcrTable {
+    /// The paragraph (an index into [`OcrPage::paragraph_lengths`]) whose lines are the cells'
+    /// text, a line a cell.
+    pub paragraph: usize,
+    pub table: Table,
+    /// For each cell, in row order, left to right: whether it has a line of the paragraph (a cell
+    /// without words has none).
+    pub filled: Vec<bool>,
+}
+
 impl OcrPage {
-    /// The words, a line of text per recognised line and a blank line between paragraphs. Words
-    /// beyond `line_lengths` make one more line, and lines beyond `paragraph_lengths` one more
-    /// paragraph.
+    /// The words, a line of text per recognised line and a blank line between paragraphs; a table
+    /// is one line of HTML (`<table>`, its rows and cells with their spans). Words beyond
+    /// `line_lengths` make one more line, and lines beyond `paragraph_lengths` one more paragraph.
     pub fn text(&self) -> String {
         let mut words = self.words.iter().map(|w| w.text.as_str());
         let mut lines: Vec<String> = Vec::new();
@@ -95,9 +109,15 @@ impl OcrPage {
         }
         let mut lines = lines.into_iter();
         let mut paragraphs: Vec<String> = Vec::new();
-        for &n in &self.paragraph_lengths {
+        for (i, &n) in self.paragraph_lengths.iter().enumerate() {
             let paragraph: Vec<String> = lines.by_ref().take(n).collect();
-            if !paragraph.is_empty() {
+            if let Some(t) = self.tables.iter().find(|t| t.paragraph == i) {
+                // The filled cells take the paragraph's lines in turn; lengths that don't add up
+                // leave cells empty rather than losing the table.
+                let mut cells = paragraph.into_iter();
+                let texts: Vec<String> = t.filled.iter().map(|&f| if f { cells.next().unwrap_or_default() } else { String::new() }).collect();
+                paragraphs.push(t.table.html(&texts));
+            } else if !paragraph.is_empty() {
                 paragraphs.push(paragraph.join("\n"));
             }
         }
@@ -132,6 +152,12 @@ pub fn layout_available() -> bool {
     Models::find_layout().is_some()
 }
 
+/// Whether the table structure model is installed too: with the layout model, a table is then read
+/// as rows and cells.
+pub fn tables_available() -> bool {
+    Models::find_tables().is_some()
+}
+
 /// Everything recognition needs from a document, detached from the session.
 pub struct OcrJob {
     bytes: Arc<Vec<u8>>,
@@ -163,6 +189,7 @@ impl OcrJob {
                 words: Vec::new(),
                 line_lengths: Vec::new(),
                 paragraph_lengths: Vec::new(),
+                tables: Vec::new(),
                 already_on_page: 0,
                 skipped: Some(why.into()),
             };
@@ -194,10 +221,13 @@ impl OcrJob {
                 [u as f64, v as f64]
             };
             // Words the page's own text already has are not added a second time.
-            // A line left with no words is dropped, and a paragraph left with no lines.
-            let (mut words, mut line_lengths, mut paragraph_lengths, mut already) = (Vec::new(), Vec::new(), Vec::new(), 0);
-            for paragraph in &paragraphs {
+            // A line left with no words is dropped, and a paragraph left with no lines. A table's
+            // lines are its cells (so the text layer reads it cell by cell); a cell left with no
+            // words keeps its place in the table, without a line.
+            let (mut words, mut line_lengths, mut paragraph_lengths, mut tables, mut already) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), 0);
+            for paragraph in paragraphs {
                 let lines_before = line_lengths.len();
+                let mut filled = Vec::new();
                 for line in &paragraph.lines {
                     let before = words.len();
                     for w in &line.words {
@@ -210,12 +240,16 @@ impl OcrJob {
                     if words.len() > before {
                         line_lengths.push(words.len() - before);
                     }
+                    filled.push(words.len() > before);
                 }
                 if line_lengths.len() > lines_before {
                     paragraph_lengths.push(line_lengths.len() - lines_before);
+                    if let Some(table) = paragraph.table {
+                        tables.push(OcrTable { paragraph: paragraph_lengths.len() - 1, table, filled });
+                    }
                 }
             }
-            out.push(OcrPage { page, words, line_lengths, paragraph_lengths, already_on_page: already, skipped: None });
+            out.push(OcrPage { page, words, line_lengths, paragraph_lengths, tables, already_on_page: already, skipped: None });
         }
         progress(total, total);
         out
@@ -336,6 +370,7 @@ mod tests {
             words: words.iter().map(|t| word(t)).collect(),
             line_lengths,
             paragraph_lengths: Vec::new(),
+            tables: Vec::new(),
             already_on_page: 0,
             skipped: None,
         };
@@ -354,6 +389,7 @@ mod tests {
             words: ["a", "b", "c", "d", "e"].iter().map(|t| word(t)).collect(),
             line_lengths,
             paragraph_lengths,
+            tables: Vec::new(),
             already_on_page: 0,
             skipped: None,
         };
@@ -361,6 +397,33 @@ mod tests {
         // Lengths that do not add up lose no line and make no empty paragraph.
         assert_eq!(page(vec![1, 1, 1, 1, 1], vec![0, 2, 0, 9]).text(), "a\nb\n\nc\nd\ne");
         assert_eq!(page(vec![1, 1, 1, 1, 1], vec![2]).text(), "a\nb\n\nc\nd\ne");
+    }
+
+    /// A table paragraph is one line of HTML: its cells take the paragraph's lines in turn, a cell
+    /// without a line is empty, and the paragraphs around it are text as before.
+    #[test]
+    fn page_text_writes_a_table_as_html() {
+        let word = |t: &str| PlacedWord { text: t.into(), origin: [0.0, 0.0], across: [1.0, 0.0], up: [0.0, 1.0] };
+        let table = Table { rows: vec![vec![Cell { colspan: 2, rowspan: 1 }], vec![Cell::default(), Cell::default()]] };
+        let page = |filled: Vec<bool>| OcrPage {
+            page: 0,
+            words: ["Title", "Name", "A&B", "Rest"].iter().map(|t| word(t)).collect(),
+            line_lengths: vec![1, 1, 1, 1],
+            paragraph_lengths: vec![1, 2, 1],
+            tables: vec![OcrTable { paragraph: 1, table: table.clone(), filled }],
+            already_on_page: 0,
+            skipped: None,
+        };
+        assert_eq!(
+            page(vec![true, false, true]).text(),
+            "Title\n\n<table><tr><td colspan=\"2\">Name</td></tr><tr><td></td><td>A&amp;B</td></tr></table>\n\nRest"
+        );
+        // More filled cells than lines: the last stay empty, and no line of the next paragraph is
+        // taken.
+        assert_eq!(
+            page(vec![true, true, true]).text(),
+            "Title\n\n<table><tr><td colspan=\"2\">Name</td></tr><tr><td>A&amp;B</td><td></td></tr></table>\n\nRest"
+        );
     }
 
     /// #1028: a recognised word over the page's own text is that text again; one in an empty

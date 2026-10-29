@@ -637,6 +637,7 @@ mod tests {
                 words: vec![word()],
                 line_lengths: vec![1],
                 paragraph_lengths: vec![1],
+                tables: Vec::new(),
                 already_on_page: 0,
                 skipped: None,
             };
@@ -679,6 +680,7 @@ mod tests {
             words: vec![pdfcraft_engine::ocr::PlacedWord { text: "scanned".into(), origin: [72.0, 700.0], across: [60.0, 0.0], up: [0.0, 12.0] }],
             line_lengths: vec![1],
             paragraph_lengths: vec![1],
+            tables: Vec::new(),
             already_on_page: 0,
             skipped: None,
         };
