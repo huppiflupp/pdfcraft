@@ -389,3 +389,37 @@ fn edge_shadow_removal_whitens_the_gutter_background_removal_alone_leaves() {
     assert!(grey_at(&after, 3, 40).abs_diff(grey_at(&before, 150, 40)) <= 4, "{} vs {}", grey_at(&after, 3, 40), grey_at(&before, 150, 40));
     assert_eq!(grey_at(&after, 150, 40), grey_at(&before, 150, 40), "the middle is left alone");
 }
+
+/// Two pages, each with its own scan image (objects 4 and 7), so cleaning one page can be told
+/// apart from cleaning the other.
+fn two_scans_pdf() -> Vec<u8> {
+    let dict = format!("/Type /XObject /Subtype /Image /Width {W} /Height {H} /ColorSpace /DeviceGray /BitsPerComponent 8");
+    let draw = format!("q {W} 0 0 {H} 0 0 cm /Im0 Do Q");
+    Pdf::new()
+        .obj("<< /Type /Catalog /Pages 2 0 R >>")
+        .obj("<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>")
+        .obj(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {W} {H}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>"))
+        .stream(&dict, scan_pixels(1))
+        .stream("", &draw)
+        .obj(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {W} {H}] /Resources << /XObject << /Im0 7 0 R >> >> /Contents 8 0 R >>"))
+        .stream(&dict, scan_pixels(1))
+        .stream("", &draw)
+        .build()
+}
+
+#[test]
+fn only_the_chosen_pages_scan_is_cleaned() {
+    // Clean page 1, then page 2 of a fresh copy: the other page's image stays byte-identical.
+    for (chosen, image, other) in [(0usize, 4u32, 7u32), (1, 7, 4)] {
+        let (mut s, id) = open(two_scans_pdf());
+        let (image_before, other_before) = (object(&s, id, image), object(&s, id, other));
+        assert_eq!(s.get(id).unwrap().page_images(chosen)[0].object, Some(ObjRef::new(image, 0)), "the fixture");
+        let report = s.enhance_scanned_pages(id, &[chosen], ScanCleanSettings::at(100)).unwrap();
+        assert_eq!((report.pages.as_slice(), report.images), (&[chosen][..], 1), "page {}", chosen + 1);
+        assert_ne!(object(&s, id, image), image_before, "page {}'s image was not cleaned", chosen + 1);
+        assert_eq!(object(&s, id, other), other_before, "cleaning page {} changed the other page's image", chosen + 1);
+        let (Object::Stream(was), Object::Stream(now)) = (&*other_before, &*object(&s, id, other)) else { panic!("the images") };
+        assert_eq!(was.raw, now.raw, "the other image's stream bytes");
+        assert_eq!(s.get(id).unwrap().can_undo(), Some("Enhance scanned file"));
+    }
+}
