@@ -12,6 +12,7 @@ mod commands;
 mod control;
 mod files;
 mod frame;
+mod guide_state;
 mod input;
 mod keys;
 mod links;
@@ -44,6 +45,16 @@ impl PdfCraftApp {
             view_defaults: Default::default(),
             show_rulers: false,
             units: Default::default(),
+            show_guides: true,
+            show_grid: false,
+            snap_to_grid: false,
+            grid: Default::default(),
+            guide_sets_dir: guide_sets::default_dir(),
+            guide_sets: Vec::new(),
+            guide_sets_loaded: false,
+            guides_help_open: false,
+            shown_guide_sets: Default::default(),
+            guide_set_draft: None,
             date_format_draft: None,
             mode_override: None,
             left: LeftPanel::AllTools,
@@ -611,6 +622,8 @@ impl eframe::App for PdfCraftApp {
         });
         self.process_pending_edits();
         palette::show(self, &ctx);
+        help_guides::window(self, &ctx);
+        self.guide_set_window(&ctx);
         dialogs::show(self, &ctx);
         self.show_progress(&ctx);
         widgets::toast(self, &ctx);

@@ -7,16 +7,23 @@ use egui::{Pos2, Rect, Vec2};
 /// used to paint the page, so ruler ticks cannot drift from independently rounded page edges.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct VisiblePageGeometry {
-    page_index: usize,
-    page_rect: Rect,
-    unrotated_size_points: Vec2,
-    rotation_degrees: u16,
-    screen_points_per_pdf_point_x: f32,
-    screen_points_per_pdf_point_y: f32,
+    pub(super) page_index: usize,
+    pub(super) page_rect: Rect,
+    pub(super) unrotated_size_points: Vec2,
+    pub(super) rotation_degrees: u16,
+    pub(super) screen_points_per_pdf_point_x: f32,
+    pub(super) screen_points_per_pdf_point_y: f32,
+}
+
+/// The displayed geometry of the pages laid out this frame (or, before the page loop, last frame),
+/// as the rulers measure them. Guides and the grid are drawn from the same geometry so they line up
+/// with the ruler ticks.
+pub(super) fn visible_pages(xforms: &[(usize, PageXform)]) -> Vec<VisiblePageGeometry> {
+    xforms.iter().map(|(page, xf)| VisiblePageGeometry::from_xform(*page, *xf)).collect()
 }
 
 impl VisiblePageGeometry {
-    fn from_xform(page_index: usize, xf: PageXform) -> Self {
+    pub(super) fn from_xform(page_index: usize, xf: PageXform) -> Self {
         let displayed_width_points = if xf.rot.is_multiple_of(180) { xf.pw } else { xf.ph };
         let displayed_height_points = if xf.rot.is_multiple_of(180) { xf.ph } else { xf.pw };
         Self {
@@ -49,7 +56,7 @@ struct CanvasGeometry {
 impl CanvasGeometry {
     fn from_view(view: &DocView) -> Self {
         let viewport_rect = view.viewport_screen;
-        let pages: Vec<_> = view.screen_xforms.iter().map(|(page, xf)| VisiblePageGeometry::from_xform(*page, *xf)).collect();
+        let pages = visible_pages(&view.screen_xforms);
         let active_page_index = active_page_geometry(viewport_rect, &pages).map(|page| page.page_index);
         Self { viewport_rect, pages, active_page_index }
     }
@@ -74,11 +81,15 @@ fn active_page_geometry(viewport: Rect, pages: &[VisiblePageGeometry]) -> Option
         .map(|(_, page)| page)
 }
 
+/// Where the ruler bands lie over a document viewport.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct RulerLayout {
-    corner: Rect,
-    horizontal: Rect,
-    vertical: Rect,
+pub(super) struct RulerLayout {
+    /// The square where the rulers meet; it shows the unit.
+    pub(super) corner: Rect,
+    /// The top ruler, which measures across the page.
+    pub(super) horizontal: Rect,
+    /// The left ruler, which measures down the page.
+    pub(super) vertical: Rect,
 }
 
 impl RulerLayout {
@@ -93,24 +104,57 @@ impl RulerLayout {
             vertical: Rect::from_min_max(egui::pos2(outer.left(), y), egui::pos2(x, outer.bottom())),
         }
     }
+    /// The part of `viewport` (the one the layout was made for) below and right of the bands.
+    pub(super) fn page_area(self, viewport: Rect) -> Rect {
+        Rect::from_min_max(self.corner.max, viewport.max)
+    }
+}
+
+/// The ruler bands over an ordinary document viewport, when the rulers are shown there.
+pub(super) fn layout(enabled: bool, presentation: bool, organize: bool, viewport: Rect) -> Option<RulerLayout> {
+    (enabled && !presentation && !organize && viewport.is_positive()).then(|| RulerLayout::new(viewport))
 }
 
 /// Ruler chrome that excludes page gestures for an ordinary document viewport.
 pub(super) fn blocked_rects(enabled: bool, presentation: bool, organize: bool, viewport: Rect) -> Vec<Rect> {
-    if !enabled || presentation || organize || !viewport.is_positive() {
-        return Vec::new();
-    }
-    let layout = RulerLayout::new(viewport);
-    vec![layout.corner, layout.horizontal, layout.vertical]
+    layout(enabled, presentation, organize, viewport).map_or_else(Vec::new, |l| vec![l.corner, l.horizontal, l.vertical])
 }
 
 /// The part of `viewport` left for page interaction after its top and left ruler bands.
 pub(super) fn page_interaction_rect(enabled: bool, presentation: bool, organize: bool, viewport: Rect) -> Rect {
-    if !enabled || presentation || organize || !viewport.is_positive() {
-        return viewport;
+    layout(enabled, presentation, organize, viewport).map_or(viewport, |l| l.page_area(viewport))
+}
+
+/// The rulers' own widgets: a drag on the top or left band draws out a guide, a click on the
+/// corner steps to the next unit, and a right-click on any of them opens the rulers' menu.
+/// Registered after the page widget, so egui gives a press on a band to the ruler and not to the
+/// page (which also leaves the bands out through [`blocked_rects`]).
+pub(super) struct RulerInput {
+    pub(super) corner: egui::Response,
+    pub(super) horizontal: egui::Response,
+    pub(super) vertical: egui::Response,
+}
+
+impl RulerInput {
+    pub(super) fn interact(ui: &egui::Ui, id: egui::Id, layout: RulerLayout) -> Self {
+        Self {
+            corner: ui.interact(layout.corner, id.with("ruler-corner"), egui::Sense::click()),
+            horizontal: ui.interact(layout.horizontal, id.with("ruler-horizontal"), egui::Sense::click_and_drag()),
+            vertical: ui.interact(layout.vertical, id.with("ruler-vertical"), egui::Sense::click_and_drag()),
+        }
     }
-    let layout = RulerLayout::new(viewport);
-    Rect::from_min_max(layout.corner.max, viewport.max)
+
+    /// The unit after a click on the corner: the next one, back to the first after the last.
+    pub(super) fn unit_after_click(&self, unit: Unit) -> Option<Unit> {
+        self.corner.clicked().then(|| next_unit(unit))
+    }
+}
+
+/// The unit after `unit` in [`Unit::ALL`], wrapping around.
+pub(super) fn next_unit(unit: Unit) -> Unit {
+    let all = Unit::ALL;
+    let at = all.iter().position(|u| *u == unit).unwrap_or(0);
+    all.get((at + 1) % all.len()).copied().unwrap_or(unit)
 }
 
 pub(super) fn paint(app: &PdfCraftApp, index: usize, ui: &egui::Ui) {

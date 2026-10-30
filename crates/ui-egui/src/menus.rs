@@ -223,8 +223,19 @@ const SIGN: &[&str] = &[
     "sign.panel",
 ];
 const WINDOW: &[&str] = &["view.next_tab", "view.previous_tab"];
-const HELP: &[&str] =
-    &["help.shortcuts", SEP, "help.app_page", "help.github", "help.website", "help.discord", SEP, "help.check_updates", SEP, "help.about"];
+const HELP: &[&str] = &[
+    "help.shortcuts",
+    "help.guides",
+    SEP,
+    "help.app_page",
+    "help.github",
+    "help.website",
+    "help.discord",
+    SEP,
+    "help.check_updates",
+    SEP,
+    "help.about",
+];
 
 /// A registry shortcut as a craft-keymap chord: `command` is ⌘ (Ctrl elsewhere) and `mac_ctrl`
 /// the Control key on macOS. `None` for a key craft-keymap doesn't name.
@@ -341,7 +352,10 @@ impl PdfCraftApp {
             Node::Separator,
         ];
         if self.active.is_some() {
-            view.extend(list(&["view.rulers"], &mut used));
+            view.extend(list(
+                &["view.rulers", "view.guides", "view.clear_guides", "view.save_guide_set", "view.hide_guide_sets", "view.grid", "view.snap_to_grid"],
+                &mut used,
+            ));
         }
         view.extend(list(PANES, &mut used));
         view.push(Node::submenu(
@@ -496,6 +510,9 @@ impl PdfCraftApp {
             "view.continuous" => Some(view.is_some_and(|v| v.continuous())),
             "view.page_gaps" => Some(view.is_some_and(|v| v.show_page_gaps)),
             "view.rulers" => Some(self.show_rulers),
+            "view.guides" => Some(self.show_guides),
+            "view.grid" => Some(self.show_grid),
+            "view.snap_to_grid" => Some(self.snap_to_grid),
             "view.layout.cover" => Some(view.is_some_and(|v| v.cover)),
             "view.full_screen" => Some(self.full_screen),
             "view.read_mode" => Some(self.mode == crate::Mode::Read),

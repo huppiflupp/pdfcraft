@@ -11,6 +11,7 @@ pub(super) mod appearance;
 pub mod bookmark_styles_ui;
 pub(super) mod comment_props;
 pub(super) mod credits;
+pub(super) mod help_guides;
 pub(super) mod marks_ui;
 pub(super) mod pageboxes;
 pub(super) mod palette;

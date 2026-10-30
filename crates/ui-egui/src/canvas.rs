@@ -24,6 +24,7 @@ mod cache;
 pub(super) mod crop;
 mod find;
 pub(super) mod fling;
+pub(crate) mod guides;
 pub(super) mod image_pick;
 mod navigation;
 mod organize;
@@ -475,6 +476,8 @@ pub struct DocView {
     pub(crate) signature_drag: crate::signature_drag::SignatureDrag,
     /// What the page modules claim for the cursor this frame; `document_area` sets it once.
     pub(crate) cursor: crate::page_cursor::PageCursor,
+    /// Guides dragged out of the rulers, per page; shown over the pages, never saved in the PDF.
+    pub(crate) guides: guides::ViewGuides,
     /// A non-edit action requested by the organize toolbar, handled by the app.
     pub pending_action: Option<ViewAction>,
     /// The grid gap the next inserted files go to (set by a "+" between pages); otherwise they
@@ -728,6 +731,7 @@ impl DocView {
             fill_signature_page: None,
             signature_drag: Default::default(),
             cursor: Default::default(),
+            guides: Default::default(),
         }
     }
 
@@ -869,6 +873,7 @@ struct PageEnv<'a> {
     text_style: &'a pdfcraft_engine::AddedText,
     tool: QuickTool,
     units: crate::units::Unit,
+    guides: guides::Settings<'a>,
     unobstructed: bool,
     visible_pages: &'a Vec<usize>,
     y_shift: f32,
@@ -892,6 +897,8 @@ struct PageOut {
     open_signature: bool,
     open_table: Option<(usize, [f64; 4])>,
     ruler_interaction: bool,
+    /// A choice in the rulers' menu, or a click on their corner.
+    ruler_action: Option<guides::RulerMenuAction>,
     primary_down: bool,
     refused: Option<String>,
     stamp_placed: bool,
@@ -1871,11 +1878,20 @@ fn draw_pages(
     for &i in visible_pages {
         draw_page(ui, view, &mut frame, i);
     }
+    // Guides and the grid over the pages just laid out, before the pages' cursor is resolved.
+    let place = guides::Place {
+        viewport: visible,
+        rulers: rulers::layout(rulers_enabled, view.presentation.is_some(), view.organize, visible),
+        unobstructed,
+        modal,
+    };
+    frame.out.ruler_action = guides::show(ui, view, &env.guides, place);
     let PageFrame {
         wanted, visible_now, mut current, best_overlap, current_overlap, current_height, pressed_page, calc_hover, out: page_out, ..
     } = frame;
     let PageOut {
         ruler_interaction: _,
+        ruler_action,
         mut canvas_action,
         clicked_link,
         mut copy_selected,
@@ -2068,6 +2084,7 @@ fn draw_pages(
         open_signature,
         open_table,
         ruler_interaction: ptr.blocked_interaction.is_some(),
+        ruler_action,
         primary_down: ptr.primary_down,
         refused,
         stamp_placed,
@@ -2835,6 +2852,8 @@ fn refine_goto_point(mut scroll: egui::ScrollArea, view: &mut DocView, geometry:
 /// scroll area with this frame's zoom, scrolling, tool input, overlays and render requests.
 pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
+    // Shown guide sets are drawn over every document: read their folder once, when first needed.
+    app.ensure_guide_sets();
     // Keyboard scrolling applies to this frame's page view only, never later.
     let key_scroll = std::mem::take(&mut app.views[index].key_scroll);
     if key_scroll != 0.0 {
@@ -3080,6 +3099,16 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         text_style: &text_style,
         tool,
         units,
+        guides: guides::Settings {
+            show_guides: app.show_guides,
+            show_grid: app.show_grid,
+            snap_to_grid: app.snap_to_grid,
+            grid: app.grid,
+            sets: &app.guide_sets,
+            shown_sets: &app.shown_guide_sets,
+            unit: units,
+            editable: app.guide_set_draft.is_none(),
+        },
         unobstructed,
         visible_pages: &visible_pages,
         y_shift,
@@ -3104,6 +3133,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         open_signature,
         open_table,
         ruler_interaction,
+        ruler_action,
         primary_down,
         mut refused,
         stamp_placed,
@@ -3198,6 +3228,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         form_notice,
         copy_selected,
         remote_open,
+        ruler_action,
         form,
         generation,
         avail,
@@ -3219,6 +3250,7 @@ struct FrameRequests {
     form_notice: Option<crate::forms_ui::FormNotice>,
     copy_selected: bool,
     remote_open: Option<(pdfcraft_engine::DocId, String, pdfcraft_render::RemoteDestination)>,
+    ruler_action: Option<guides::RulerMenuAction>,
     form: Arc<Vec<pdfcraft_engine::FormField>>,
     generation: u64,
     avail: Rect,
@@ -3239,6 +3271,7 @@ fn apply_frame_requests(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui, 
         form_notice,
         copy_selected,
         remote_open,
+        ruler_action,
         form,
         generation,
         avail,
@@ -3342,6 +3375,9 @@ fn apply_frame_requests(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui, 
     }
     if let Some((source, file, destination)) = remote_open {
         app.open_remote_link(source, file, destination);
+    }
+    if let Some(action) = ruler_action {
+        app.ruler_menu_action(index, action);
     }
     // Rulers overlay the final document viewport and consume the same snapped transforms that
     // painted the visible pages. They never participate in page layout or scroll sizing.

@@ -86,6 +86,7 @@ pub(crate) use app::{MAX_AUTHOR_CHARS, copy_refused, date_text_for_pdf, print_re
 use canvas::autoscroll;
 use canvas::crop;
 use canvas::fling;
+pub(crate) use canvas::guides;
 use canvas::image_pick;
 use canvas::page_cursor;
 use canvas::page_pointer;
@@ -98,6 +99,7 @@ use dialogs::appearance;
 pub use dialogs::bookmark_styles_ui;
 use dialogs::comment_props;
 use dialogs::credits;
+use dialogs::help_guides;
 use dialogs::marks_ui;
 use dialogs::pageboxes;
 use dialogs::palette;
@@ -114,6 +116,7 @@ use panels::organize_panel;
 use panels::page_selection_ui;
 use panels::search_ui;
 pub use panels::side_panels;
+pub(crate) use persist::guide_sets;
 pub use persist::last_session;
 pub use persist::last_view;
 use persist::recovery;
@@ -262,8 +265,27 @@ pub struct PdfCraftApp {
     pub view_defaults: canvas::ViewDefaults,
     /// Whether document rulers overlay the viewport.
     pub show_rulers: bool,
-    /// The unit page sizes and margins are shown in (Preferences ▸ Documents and view).
+    /// The unit page sizes and margins are shown in (Preferences ▸ Units and guides).
     pub units: units::Unit,
+    /// View ▸ Guides: show the guides dragged out of the rulers. Global and persisted.
+    pub show_guides: bool,
+    /// View ▸ Grid: draw the page grid. Global and persisted.
+    pub show_grid: bool,
+    /// View ▸ Snap to grid: a guide being dragged snaps to the nearest grid line.
+    pub snap_to_grid: bool,
+    /// Grid spacing, offset, subdivisions and the grid and guide colours (Preferences ▸ Units and guides).
+    pub(crate) grid: guides::GridSettings,
+    /// The guide-set folder and the sets read from it (Preferences ▸ Units and guides).
+    pub guide_sets_dir: Option<std::path::PathBuf>,
+    pub(crate) guide_sets: Vec<guide_sets::Loaded>,
+    /// Whether the folder has been read since start (it is read when first needed, not in `new`).
+    pub(crate) guide_sets_loaded: bool,
+    /// Help ▸ Rulers, guides and grid is open.
+    pub guides_help_open: bool,
+    /// Names of the sets shown over every document. Persisted.
+    pub shown_guide_sets: std::collections::BTreeSet<String>,
+    /// The Save guides as a set window while it is open: name, shortcut and whether the grid goes in.
+    pub(crate) guide_set_draft: Option<(String, Option<u8>, bool)>,
     /// The Preferences ▸ Date format box while it's being edited, or while it holds an invalid
     /// pattern (the session keeps the last valid one).
     pub date_format_draft: Option<String>,

@@ -334,7 +334,7 @@ update the numbers.
 ### 16. UI precision gaps
 
 - **Missing:** moving several selected objects across pages (same-page moves shipped, #844), single-key tool accelerators,
-  draggable ruler origins and grids (read-only document rulers shipped), guides, loupe and dynamic zoom, multiple windows and split view, comment
+  draggable ruler origins (rulers, guides dragged from them, a grid and guide sets shipped; no undo for guide edits, page content does not snap), loupe and dynamic zoom, multiple windows and split view, comment
   pop-ups that can be moved, connector lines, customisable quick tools; shortcut display and tool-mode bugs (#746, #721), macOS window controls
   (#789).
 - **Estimate:** 30–60 h. **Doc:** [ui-parity.md](ui-parity.md).
@@ -357,9 +357,11 @@ update the numbers.
 ### 19. Preferences mostly missing
 
 - **Missing:** most of Acrobat's twenty or so preference pages (General, Documents, Commenting, Forms, Identity,
-  Signatures, Security, Measuring, Units and guides, Convert, …), and a search box over them.
+  Signatures, Security, Measuring, Convert, …), and a search box over them.
   Today, in a window with the categories in a list (#2264): General, Appearance, Page display,
-  Accessibility, Commenting, Fill & Sign, JavaScript; a new page is one module in `prefs/`.
+  Units and guides, Accessibility, Commenting, Fill & Sign, JavaScript; a new page is one module
+  in `prefs/`. Units and guides has the unit, the grid, the look of grid and guides, and the guide
+  sets; Acrobat's ruler-origin and point-measuring settings are still missing there.
 - **Estimate:** 15–25 h. **Doc:** [ui-parity.md](ui-parity.md).
 
 ### 20. Scanners, GPU page rendering, pen pressure, Read Out Loud

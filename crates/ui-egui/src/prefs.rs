@@ -13,6 +13,7 @@ mod javascript;
 mod page_display;
 mod reading_colours;
 pub(crate) mod tiles;
+mod units_guides;
 
 use egui::{Align, CornerRadius, Layout, Rect, RichText, Sense, Stroke, pos2, vec2};
 
@@ -44,6 +45,7 @@ pub enum PrefsPage {
     General,
     Appearance,
     PageDisplay,
+    UnitsGuides,
     Accessibility,
     Commenting,
     FillSign,
@@ -52,8 +54,16 @@ pub enum PrefsPage {
 
 impl PrefsPage {
     /// The categories, in the order the list shows them.
-    pub const ALL: [Self; 7] =
-        [Self::General, Self::Appearance, Self::PageDisplay, Self::Accessibility, Self::Commenting, Self::FillSign, Self::JavaScript];
+    pub const ALL: [Self; 8] = [
+        Self::General,
+        Self::Appearance,
+        Self::PageDisplay,
+        Self::UnitsGuides,
+        Self::Accessibility,
+        Self::Commenting,
+        Self::FillSign,
+        Self::JavaScript,
+    ];
 
     /// The name the control channel uses: `dialog preferences:page-display`.
     pub fn slug(self) -> &'static str {
@@ -61,6 +71,7 @@ impl PrefsPage {
             Self::General => "general",
             Self::Appearance => "appearance",
             Self::PageDisplay => "page-display",
+            Self::UnitsGuides => "units-guides",
             Self::Accessibility => "accessibility",
             Self::Commenting => "commenting",
             Self::FillSign => "fill-sign",
@@ -79,6 +90,7 @@ impl PrefsPage {
             Self::General => "General",
             Self::Appearance => "Appearance",
             Self::PageDisplay => "Page display",
+            Self::UnitsGuides => "Units and guides",
             Self::Accessibility => "Accessibility",
             Self::Commenting => "Commenting",
             Self::FillSign => "Fill & Sign",
@@ -100,6 +112,7 @@ impl PrefsPage {
             Self::General => "settings",
             Self::Appearance => "palette",
             Self::PageDisplay => "book-open",
+            Self::UnitsGuides => "ruler",
             Self::Accessibility => "accessibility",
             Self::Commenting => "message-square",
             Self::FillSign => "pen-line",
@@ -252,6 +265,7 @@ fn settings(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, height: f32) {
                         reading_colours::show(ui, app, t);
                     }
                     PrefsPage::PageDisplay => page_display::show(ui, app, t),
+                    PrefsPage::UnitsGuides => units_guides::show(ui, app, t),
                     PrefsPage::Accessibility => accessibility::show(ui, app, t),
                     PrefsPage::Commenting => commenting::show(ui, app, t),
                     PrefsPage::FillSign => fill_sign::show(ui, app, t),

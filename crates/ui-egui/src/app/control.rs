@@ -180,6 +180,66 @@ impl PdfCraftApp {
                     _ => return Err("rulers must be on or off".into()),
                 };
             }
+            ("guides", _) => {
+                self.show_guides = match value {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err("guides must be on or off".into()),
+                };
+            }
+            ("grid", _) => {
+                self.show_grid = match value {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err("grid must be on or off".into()),
+                };
+            }
+            ("snap-to-grid", _) => {
+                self.snap_to_grid = match value {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err("snap-to-grid must be on or off".into()),
+                };
+            }
+            // A set as JSON or TOML (the guide-set schema) becomes the active document's guides.
+            ("document-guides", _) => {
+                let set = guide_sets::read_any(value)?;
+                let i = self.active.ok_or("open a document first")?;
+                let sizes = self.page_sizes(i);
+                let view = self.views.get_mut(i).ok_or("open a document first")?;
+                let mut guides = guides::Guides::default();
+                guide_sets::apply_to_document(&set, &mut guides, &sizes);
+                view.guides.replace(guides);
+            }
+            // `name:on`, `name:off` or `name:toggle`: show or hide a saved set.
+            ("guide-set", _) => {
+                self.ensure_guide_sets();
+                let (name, how) = value.rsplit_once(':').ok_or("guide-set must be name:on, name:off or name:toggle")?;
+                if !self.guide_sets.iter().any(|l| l.name() == name) {
+                    return Err(format!("no guide set named {name:?}; ui.state lists them under guides.sets"));
+                }
+                match how {
+                    "on" => {
+                        self.shown_guide_sets.insert(name.to_string());
+                    }
+                    "off" => {
+                        self.shown_guide_sets.remove(name);
+                    }
+                    "toggle" => self.toggle_guide_set(name),
+                    _ => return Err("guide-set must be name:on, name:off or name:toggle".into()),
+                }
+            }
+            // Write a set file (JSON or TOML in the guide-set schema) into the folder and reload it.
+            ("guide-set-file", _) => {
+                let set = guide_sets::read_any(value)?;
+                let dir = self.guide_sets_dir.clone().ok_or("guide sets need a folder, which the web version doesn't have")?;
+                guide_sets::save(&dir, &set)?;
+                self.reload_guide_sets();
+            }
+            ("guide-sets", _) => match value {
+                "reload" => self.reload_guide_sets(),
+                _ => return Err("guide-sets takes reload".into()),
+            },
             ("cover", Some(v)) => {
                 let on = match value {
                     "on" => true,

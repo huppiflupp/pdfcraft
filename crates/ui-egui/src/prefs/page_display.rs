@@ -1,5 +1,5 @@
 //! Preferences ▸ Page display: how a PDF opens (one page or two side by side, scrolling, zoom),
-//! how the wheel and keys scroll it, and the units page sizes are shown in.
+//! and how the wheel and keys scroll it. Units are in Units and guides.
 
 use super::tiles::{self, Picture, Tile};
 use super::{card, hint, radios, row};
@@ -51,9 +51,5 @@ pub(super) fn show(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
     });
     card(ui, t, Some(tl!("Scroll speed (mouse wheel and arrow keys)")), |ui| {
         radios(ui, &mut app.scroll_speed, crate::scroll_speed::ScrollSpeed::ALL.map(|s| (s, tl_ctx!("scroll speed", s.label()))));
-    });
-    card(ui, t, Some(tl!("Units")), |ui| {
-        radios(ui, &mut app.units, crate::units::Unit::ALL.map(|u| (u, u.label())));
-        hint(ui, t, tl!("For page sizes and margins."));
     });
 }
