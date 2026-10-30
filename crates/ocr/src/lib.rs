@@ -12,6 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
+mod pitch;
 mod tiles;
 
 pub use pdfcraft_fonts::helvetica_width;
@@ -175,16 +176,21 @@ impl Ocr {
 
 impl Ocr {
     /// The words in a page, `rgb` (1 or 3 bytes per pixel) prepared as `page`. A page at least
-    /// twice the detector's input along an axis is detected in overlapping tiles ([`tiles`]), each
-    /// word kept by the tile whose core holds its centre and moved back to page pixels.
+    /// twice the detector's input along an axis whose text is small once shrunk to that input
+    /// ([`pitch`]) is detected in overlapping tiles ([`tiles`]), each word kept by the tile whose
+    /// core holds its centre and moved back to page pixels.
     fn detect_words(&self, rgb: &[u8], width: u32, height: u32, page: &ocrs::OcrInput) -> Result<Vec<rten_imageproc::RotatedRect>, OcrError> {
         let err = |e: &dyn std::fmt::Display| OcrError::Recognize(e.to_string());
         let tiles = self.detector_input.map(|input| tiles::tiles(width, height, input)).unwrap_or_default();
         let area = (width as usize).checked_mul(height as usize).filter(|&a| a > 0);
         let channels = area.and_then(|a| rgb.len().is_multiple_of(a).then(|| rgb.len() / a)).filter(|c| matches!(c, 1 | 3));
-        let (Some(channels), true) = (channels, tiles.len() > 1) else {
+        let (Some(channels), Some(input), true) = (channels, self.detector_input, tiles.len() > 1) else {
             return self.engine.detect_words(page).map_err(|e| err(&e));
         };
+        // Large print reads as well whole, at a quarter of the detection time.
+        if !pitch::lines(rgb, width, height, channels, input).wants_tiles() {
+            return self.engine.detect_words(page).map_err(|e| err(&e));
+        }
         let mut words = Vec::new();
         for tile in &tiles {
             let pixels =
