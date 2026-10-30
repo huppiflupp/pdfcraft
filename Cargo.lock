@@ -1200,9 +1200,10 @@ dependencies = [
 [[package]]
 name = "craft-print"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=84059e465cbba4776445b2bcbea1690864658468#84059e465cbba4776445b2bcbea1690864658468"
+source = "git+https://github.com/storytold/craft-libs?rev=cc2b13185f642c83bb7e9f1b55cdd187d4b65be9#cc2b13185f642c83bb7e9f1b55cdd187d4b65be9"
 dependencies = [
  "craft-winprint-gdi",
+ "log",
  "miniz_oxide 0.9.1",
  "roxmltree 0.21.2",
  "tempfile",
