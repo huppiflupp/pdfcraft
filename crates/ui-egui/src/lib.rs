@@ -9,6 +9,15 @@
 // The settings object in `persist` is one `json!` literal past the default limit of 128.
 #![recursion_limit = "256"]
 
+/// PdfCraft as craft-update knows it, with its 128 px icon and accent colour: the update
+/// prompt shows both, and an AppImage's menu entry gets the icon.
+#[cfg(not(target_arch = "wasm32"))]
+pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
+    icon_png: Some(include_bytes!("../../../assets/app-icon/hicolor/128x128/apps/ai.storyteller.pdfcraft.png")),
+    accent: Some([0xb7, 0x02, 0x28]),
+    ..craft_update::suite::PDFCRAFT
+};
+
 use crate::control::Host as _;
 
 /// Translate an English UI string into the current language (see [`i18n`]).
@@ -39,6 +48,8 @@ pub mod marks {
 pub use create_ui::Clip;
 pub use link_ui::LinkDraft;
 pub use optimize_ui::{OptimizeDraft, OptimizeTab};
+mod prefs;
+pub use prefs::PrefsPage;
 pub use sign_ui::{DigitalIdEntry, SignDraft, SignGraphic, SignStep};
 mod bidi;
 mod dialogs;
@@ -243,6 +254,8 @@ pub struct PdfCraftApp {
     pub mode: Mode,
     /// Workspace used for newly opened PDFs; independent of PDF Initial View metadata.
     pub default_mode: Mode,
+    /// The Preferences category shown, kept while the app runs so Preferences reopens on it.
+    pub preferences_page: PrefsPage,
     /// Page display and zoom for newly opened PDFs that don't ask for their own (Preferences ▸
     /// Documents and view). Continuous scrolling at fit width by default, which never snaps
     /// between pages.
